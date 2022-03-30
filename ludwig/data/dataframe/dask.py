@@ -99,8 +99,10 @@ class DaskEngine(DataFrameEngine):
 
     def to_ray_dataset(self, df):
         from ray.data import from_dask
-
-        return from_dask(df)
+        # Temporary workaround to make Ray only use limited main memory
+        with dask.annotate(ray_remote_args={"memory": 1024 * 1024 * 1024}):
+            df = df.repartition(partition_size="128MB")
+            return from_dask(df)
 
     @property
     def array_lib(self):

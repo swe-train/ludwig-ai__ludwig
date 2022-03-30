@@ -321,6 +321,10 @@ def create_vocabulary_single_token(
             str2idx: Map of symbol to index.
             str2freq: Map of symbol to frequency.
     """
+    import dask
+    # Temporary workaround to make Ray only use limited main memory
+    with dask.annotate(ray_remote_args={"memory": 1024 * 1024 * 1024}):
+        data = data.repartition(partition_size="128MB")
     processed_counts = data.value_counts(sort=True)
     processed_counts = processor.compute(processed_counts)
     vocab = [unknown_symbol] + processed_counts.index.tolist()[:num_most_frequent]

@@ -1068,7 +1068,7 @@ def build_dataset(
 
     # If persisting DataFrames in memory is enabled, we want to do this after
     # each batch of parallel ops in order to avoid redundant computation
-    dataset_df = backend.df_engine.persist(dataset_df)
+    # dataset_df = backend.df_engine.persist(dataset_df)
 
     global_preprocessing_parameters = merge_dict(default_preprocessing_parameters, global_preprocessing_parameters)
 
@@ -1622,7 +1622,7 @@ def _preprocess_file_for_training(
 
     logger.info("Building dataset: DONE")
 
-    data = backend.df_engine.persist(data)
+    # data = backend.df_engine.persist(data)
     if SPLIT in data.columns:
         logger.debug("split on split column")
         training_data, test_data, validation_data = split_dataset_ttv(data, SPLIT)
@@ -1676,7 +1676,7 @@ def _preprocess_df_for_training(
 
     logger.info("Building dataset: DONE")
 
-    dataset = backend.df_engine.persist(dataset)
+    # dataset = backend.df_engine.persist(dataset)
     if SPLIT in dataset.columns:
         logger.debug("split on split column")
         training_set, test_set, validation_set = split_dataset_ttv(dataset, SPLIT)
