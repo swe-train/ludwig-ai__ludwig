@@ -983,11 +983,6 @@ class Trainer(BaseTrainer):
                         break
         finally:
             # ================ Finished Training ================
-            self.callback(
-                lambda c: c.on_trainer_train_teardown(self, progress_tracker, save_path, self.is_coordinator()),
-                coordinator_only=False,
-            )
-
             if train_summary_writer is not None:
                 train_summary_writer.close()
             if validation_summary_writer is not None:
@@ -1001,6 +996,11 @@ class Trainer(BaseTrainer):
             # Load the best weights from saved checkpoint
             if self.is_coordinator() and not self.skip_save_model:
                 self.model.load_state_dict(torch.load(model_weights_path))
+
+            self.callback(
+                lambda c: c.on_trainer_train_teardown(self, progress_tracker, save_path, self.is_coordinator()),
+                coordinator_only=False,
+            )
 
         return (
             self.model,

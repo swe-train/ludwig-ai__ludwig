@@ -14,7 +14,7 @@ from tests.integration_tests.utils import category_feature, FakeRemoteBackend, g
 
 
 def test_mlflow_callback(tmpdir):
-    epochs = 2
+    epochs = 4
     batch_size = 8
     num_examples = 32
 
@@ -67,6 +67,13 @@ def test_mlflow_callback(tmpdir):
     artifacts = [f.path for f in client.list_artifacts(callback.run.info.run_id, "")]
     local_dir = f"{tmpdir}/local_artifacts"
     os.makedirs(local_dir)
+
+    # Make sure checkpoints are cleaned up in mlflow. Should only keep the latest checkpoint and the lock file,
+    # resultin two files uploaded
+    assert "model" in artifacts
+    ckpts = [f.path for f in client.list_artifacts(callback.run.info.run_id, "model/model/training_checkpoints")]
+    assert len(ckpts) == 2
+    assert set(ckpts) == {"model/model/training_checkpoints/.lock", "model/model/training_checkpoints/000000016.ckpt"}
 
     assert "config.yaml" in artifacts
     local_config_path = client.download_artifacts(callback.run.info.run_id, "config.yaml", local_dir)
