@@ -15,7 +15,7 @@
 # ==============================================================================
 import logging
 from datetime import date, datetime
-from typing import Any, Dict
+from typing import Any, Callable, Dict
 
 import numpy as np
 import torch
@@ -155,3 +155,29 @@ class DateInputFeature(DateFeatureMixin, InputFeature):
     @staticmethod
     def populate_defaults(input_feature):
         set_default_value(input_feature, TIED, None)
+
+
+strptime = datetime.strptime
+
+
+def test_parse(date_str, format):
+    return strptime(date_str, format)
+
+
+class TestClass(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.format = "%Y-%m-%d"
+
+    def forward(self, date_str):
+        datetime_obj = test_parse(date_str, self.format)
+        return datetime_obj.year
+
+
+def main():
+    test_class = TestClass()
+    scripted_test_class = torch.jit.script(test_class)
+
+
+if __name__ == "__main__":
+    main()
