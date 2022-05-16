@@ -129,6 +129,7 @@ class ImageFeatureMixin(BaseFeatureMixin):
     def preprocessing_defaults():
         return {
             "missing_value_strategy": BACKFILL,
+            "default_image_fallback": True,
             "in_memory": True,
             "resize_method": "interpolate",
             "scaling": "pixel_normalization",
@@ -144,6 +145,7 @@ class ImageFeatureMixin(BaseFeatureMixin):
     def preprocessing_schema():
         return {
             "missing_value_strategy": {"type": "string", "enum": MISSING_VALUE_STRATEGY_OPTIONS},
+            "default_image_fallback": {"type:" "boolean"},
             "in_memory": {"type": "boolean"},
             "resize_method": {"type": "string", "enum": RESIZE_METHODS},
             "scaling": {"type": "string", "enum": list(image_scaling_registry.keys())},
@@ -461,7 +463,9 @@ class ImageFeatureMixin(BaseFeatureMixin):
         )
 
         # TODO: alternatively use get_average_image() for unreachable images
-        default_image = get_gray_default_image(num_channels, height, width)
+        default_image = (
+            get_gray_default_image(num_channels, height, width) if feature_config["default_image_fallback"] else None
+        )
 
         # check to see if the active backend can support lazy loading of
         # image features from the hdf5 cache.
