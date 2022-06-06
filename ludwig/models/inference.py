@@ -53,6 +53,8 @@ class InferenceModule(nn.Module):
             module_dict_key = get_module_dict_key_from_name(feature_name)
             self.predict_modules[module_dict_key] = feature.prediction_module
 
+        # TODO: Enable support for output feature dependencies:
+        # https://ludwig-ai.github.io/ludwig-docs/0.5/configuration/features/output_features/#output-feature-dependencies
         output_features = {
             feature[NAME]: get_from_registry(feature[TYPE], output_type_registry)
             for feature in config["output_features"]
@@ -101,6 +103,9 @@ class InferenceLudwigModel:
 
         One difference between InferenceLudwigModel and LudwigModel is that the input data must be a pandas DataFrame.
         """
+        if not isinstance(dataset, pd.DataFrame):
+            raise ValueError("InferenceLudwigModel only supports pandas DataFrames as input.")
+
         inputs = {
             if_config["name"]: to_inference_module_input(dataset[if_config[COLUMN]], if_config[TYPE])
             for if_config in self.config["input_features"]
