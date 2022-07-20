@@ -15,6 +15,7 @@
 # ==============================================================================
 import logging
 import os
+import time
 from collections import Counter
 from functools import partial
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -58,6 +59,8 @@ from ludwig.utils.image_utils import (
 )
 from ludwig.utils.misc_utils import set_default_value
 from ludwig.utils.types import Series, TorchscriptPreprocessingInput
+
+logger = logging.getLogger(__name__)
 
 # TODO(shreya): Confirm if it's ok to do per channel normalization
 # TODO(shreya): Also confirm if this is being used anywhere
@@ -252,12 +255,19 @@ class ImageFeatureMixin(BaseFeatureMixin):
         Return:
             (height, width) The inferred height and width.
         """
+
+        start = time.time()
+
         height_avg = sum(x.shape[1] for x in image_sample) / len(image_sample)
         width_avg = sum(x.shape[2] for x in image_sample) / len(image_sample)
         height = min(int(round(height_avg)), max_height)
         width = min(int(round(width_avg)), max_width)
 
         logging.debug(f"Inferring height: {height} and width: {width}")
+
+        duration = time.time() - start
+        logger.info(f"Time spent inferring image size: {duration}")
+
         return height, width
 
     @staticmethod
@@ -268,6 +278,9 @@ class ImageFeatureMixin(BaseFeatureMixin):
         of images we should default to that. However, if the majority of the sample images have a specific channel depth
         (other than 3) this is probably intentional so we keep it, but log an info message.
         """
+
+        start = time.time()
+
         n_images = len(image_sample)
         channel_frequency = Counter([num_channels_in_image(x) for x in image_sample])
         if channel_frequency[1] > n_images / 2:
@@ -295,6 +308,10 @@ class ImageFeatureMixin(BaseFeatureMixin):
             "To explicitly set the number of channels, define num_channels in the preprocessing dictionary of "
             "the image input feature config."
         )
+
+        duration = time.time() - start
+        logger.info(f"Time spent inferring number of channels: {duration}")
+
         return num_channels
 
     @staticmethod
@@ -308,6 +325,8 @@ class ImageFeatureMixin(BaseFeatureMixin):
         fall back on to the first image in the dataset. The assumption being that all the images in the data are
         expected be of the same size with the same number of channels
         """
+
+        start = time.time()
 
         explicit_height_width = HEIGHT in preprocessing_parameters or WIDTH in preprocessing_parameters
         explicit_num_channels = NUM_CHANNELS in preprocessing_parameters and preprocessing_parameters[NUM_CHANNELS]
@@ -383,12 +402,18 @@ class ImageFeatureMixin(BaseFeatureMixin):
                 )
 
         assert isinstance(num_channels, int), ValueError("Number of image channels needs to be an integer")
+
+        duration = time.time() - start
+        logger.info(f"Time spent finalizing image preprocessing parameters: {duration}")
+
         return (should_resize, width, height, num_channels, user_specified_num_channels)
 
     @staticmethod
     def add_feature_data(
         feature_config, input_df, proc_df, metadata, preprocessing_parameters, backend, skip_save_processed_input
     ):
+        start = time.time()
+
         set_default_value(feature_config[PREPROCESSING], "in_memory", preprocessing_parameters["in_memory"])
 
         name = feature_config[NAME]
@@ -435,7 +460,13 @@ class ImageFeatureMixin(BaseFeatureMixin):
         if in_memory or skip_save_processed_input:
             metadata[name]["reshape"] = (num_channels, height, width)
 
+            start_reading = time.time()
+
             proc_col = backend.read_binary_files(abs_path_column, map_fn=read_image_if_bytes_obj_and_resize)
+
+            duration_reading = time.time() - start_reading
+            logger.info(f"Time spent reading binary files and resizing: {duration_reading}")
+
             proc_col = backend.df_engine.map_objects(proc_col, lambda row: row if row is not None else default_image)
             proc_df[feature_config[PROC_COLUMN]] = proc_col
         else:
@@ -453,6 +484,10 @@ class ImageFeatureMixin(BaseFeatureMixin):
                 h5_file.flush()
 
             proc_df[feature_config[PROC_COLUMN]] = np.arange(num_images)
+
+        duration = time.time() - start
+        logger.info(f"Time to process image column: {duration}")
+
         return proc_df
 
 
