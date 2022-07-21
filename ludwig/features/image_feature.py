@@ -467,7 +467,10 @@ class ImageFeatureMixin(BaseFeatureMixin):
             duration_reading = time.time() - start_reading
             logger.info(f"Time spent reading binary files and resizing: {duration_reading}")
 
-            proc_col = backend.df_engine.map_objects(proc_col, lambda row: row if row is not None else default_image)
+            proc_col = backend.df_engine.map_objects(
+                proc_col, lambda row: default_image if not isinstance(row, np.ndarray) else row
+            )
+
             proc_df[feature_config[PROC_COLUMN]] = proc_col
         else:
             num_images = len(abs_path_column)
@@ -480,7 +483,7 @@ class ImageFeatureMixin(BaseFeatureMixin):
                 )
                 for i, img_entry in enumerate(abs_path_column):
                     res = read_image_if_bytes_obj_and_resize(img_entry)
-                    image_dataset[i, :height, :width, :] = res if res is not None else default_image
+                    image_dataset[i, :height, :width, :] = default_image if not isinstance(res, np.ndarray) else res
                 h5_file.flush()
 
             proc_df[feature_config[PROC_COLUMN]] = np.arange(num_images)
