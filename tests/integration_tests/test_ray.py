@@ -201,7 +201,7 @@ def test_ray_read_binary_files(tmpdir, df_engine):
     audio_params = audio_feature(folder=audio_dest_folder, preprocessing=preprocessing_params)
 
     dataset_path = os.path.join(tmpdir, "dataset.csv")
-    dataset_path = generate_data([audio_params], [], dataset_path, num_examples=100)
+    dataset_path = generate_data([audio_params], [], dataset_path, num_examples=10)
     dataset_path = create_data_set_to_use("csv", dataset_path, nan_percent=0.1)
 
     with ray_start(num_cpus=2, num_gpus=None):
@@ -212,7 +212,6 @@ def test_ray_read_binary_files(tmpdir, df_engine):
         series = df[audio_params[COLUMN]]
         proc_col = backend.read_binary_files(series)
         proc_col = backend.df_engine.compute(proc_col)
-        proc_col = proc_col.reset_index(drop=True)  # Index not preserved by Ray-generated partitions
 
         backend = initialize_backend(LOCAL_BACKEND)
         df = backend.df_engine.df_lib.read_csv(dataset_path)
@@ -288,16 +287,15 @@ def test_ray_sequence():
 
 
 @pytest.mark.parametrize("dataset_type", ["csv", "parquet"])
-@pytest.mark.parametrize("feature_type", ["raw", "fbank"])
 @pytest.mark.distributed
-def test_ray_audio(tmpdir, dataset_type, feature_type):
+def test_ray_audio(tmpdir, dataset_type):
     preprocessing_params = {
         "audio_file_length_limit_in_s": 3.0,
         "missing_value_strategy": BACKFILL,
         "in_memory": True,
         "padding_value": 0,
         "norm": "per_file",
-        "type": feature_type,
+        "type": "fbank",
         "window_length_in_s": 0.04,
         "window_shift_in_s": 0.02,
         "num_filter_bands": 80,
@@ -305,13 +303,41 @@ def test_ray_audio(tmpdir, dataset_type, feature_type):
     audio_dest_folder = os.path.join(tmpdir, "generated_audio")
     input_features = [audio_feature(folder=audio_dest_folder, preprocessing=preprocessing_params)]
     output_features = [binary_feature()]
-    run_test_with_features(input_features, output_features, dataset_type=dataset_type, nan_percent=0.1)
+    run_test_with_features(
+        input_features,
+        output_features,
+        dataset_type=dataset_type,
+        nan_percent=0.1,
+        num_examples=40,
+    )
 
 
-@pytest.mark.parametrize("df_engine", ["dask", "modin"])
 @pytest.mark.parametrize("dataset_type", ["csv", "parquet", "pandas+numpy_images"])
 @pytest.mark.distributed
-def test_ray_image(tmpdir, df_engine, dataset_type):
+def test_ray_image(tmpdir, dataset_type):
+    image_dest_folder = os.path.join(tmpdir, "generated_images")
+    input_features = [
+        image_feature(
+            folder=image_dest_folder,
+            preprocessing={"in_memory": True, "height": 12, "width": 12, "num_channels": 3, "num_processes": 5},
+            output_size=16,
+            num_filters=8,
+        ),
+    ]
+    output_features = [binary_feature()]
+    run_test_with_features(
+        input_features,
+        output_features,
+        df_engine="dask",
+        dataset_type=dataset_type,
+        nan_percent=0.1,
+        num_examples=40,
+    )
+
+
+# TODO(geoffrey): Fold modin tests into test_ray_image as @pytest.mark.parametrized once tests are optimized
+@pytest.mark.distributed
+def test_ray_image_modin(tmpdir):
     image_dest_folder = os.path.join(tmpdir, "generated_images")
     input_features = [
         image_feature(
@@ -324,12 +350,17 @@ def test_ray_image(tmpdir, df_engine, dataset_type):
     ]
     output_features = [binary_feature()]
     run_test_with_features(
-        input_features, output_features, df_engine=df_engine, dataset_type=dataset_type, nan_percent=0.1
+        input_features,
+        output_features,
+        df_engine="modin",
+        dataset_type="csv",
+        nan_percent=0.1,
+        num_examples=40,
     )
 
 
 @pytest.mark.distributed
-def test_ray_multiple_image_features(tmpdir):
+def test_ray_image_multiple_features(tmpdir):
     input_features = [
         image_feature(
             folder=os.path.join(tmpdir, "generated_images_1"),
@@ -345,7 +376,14 @@ def test_ray_multiple_image_features(tmpdir):
         ),
     ]
     output_features = [binary_feature()]
-    run_test_with_features(input_features, output_features, df_engine="dask", dataset_type="csv", nan_percent=0.1)
+    run_test_with_features(
+        input_features,
+        output_features,
+        df_engine="dask",
+        dataset_type="csv",
+        nan_percent=0.1,
+        num_examples=40,
+    )
 
 
 @pytest.mark.skip(reason="flaky: ray is running out of resources")
@@ -521,7 +559,4 @@ def test_ray_calibration(calibration):
         binary_feature(calibration=calibration),
         category_feature(vocab_size=3, calibration=calibration),
     ]
-    run_test_with_features(
-        input_features,
-        output_features,
-    )
+    run_test_with_features(input_features, output_features, num_examples=20)
