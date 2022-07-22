@@ -330,8 +330,9 @@ def test_ray_image(tmpdir, dataset_type):
         output_features,
         df_engine="dask",
         dataset_type=dataset_type,
+        skip_save_processed_input=False,
         nan_percent=0.1,
-        num_examples=40,
+        num_examples=100,
     )
 
 
@@ -559,4 +560,4 @@ def test_ray_calibration(calibration):
         binary_feature(calibration=calibration),
         category_feature(vocab_size=3, calibration=calibration),
     ]
-    run_test_with_features(input_features, output_features, num_examples=20)
+    run_test_with_features(input_features, output_features)

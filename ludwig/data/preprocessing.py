@@ -103,8 +103,6 @@ from ludwig.utils.fs_utils import file_lock, path_exists
 from ludwig.utils.misc_utils import get_from_registry, merge_dict, resolve_pointers
 from ludwig.utils.types import DataFrame, Series
 
-logger = logging.getLogger(__name__)
-
 
 class DataFormatPreprocessor(ABC):
     @staticmethod
@@ -165,7 +163,7 @@ class DictPreprocessor(DataFormatPreprocessor):
     ):
         num_overrides = override_in_memory_flag(features, True)
         if num_overrides > 0:
-            logger.warning("Using in_memory = False is not supported " "with {} data format.".format("dict"))
+            logging.warning("Using in_memory = False is not supported " "with {} data format.".format("dict"))
 
         df_engine = backend.df_engine
         if dataset is not None:
@@ -222,7 +220,7 @@ class DataFramePreprocessor(DataFormatPreprocessor):
     ):
         num_overrides = override_in_memory_flag(features, True)
         if num_overrides > 0:
-            logger.warning("Using in_memory = False is not supported " "with {} data format.".format("dataframe"))
+            logging.warning("Using in_memory = False is not supported " "with {} data format.".format("dataframe"))
 
         if isinstance(dataset, pd.DataFrame):
             dataset = backend.df_engine.from_pandas(dataset)
@@ -1014,17 +1012,17 @@ class HDF5Preprocessor(DataFormatPreprocessor):
         if not training_set_metadata:
             raise ValueError("When providing HDF5 data, " "training_set_metadata must not be None.")
 
-        logger.info("Using full hdf5 and json")
+        logging.info("Using full hdf5 and json")
 
         if DATA_TRAIN_HDF5_FP not in training_set_metadata:
-            logger.warning(
+            logging.warning(
                 "data_train_hdf5_fp not present in training_set_metadata. "
                 "Adding it with the current HDF5 file path {}".format(not_none_set)
             )
             training_set_metadata[DATA_TRAIN_HDF5_FP] = not_none_set
 
         elif training_set_metadata[DATA_TRAIN_HDF5_FP] != not_none_set:
-            logger.warning(
+            logging.warning(
                 "data_train_hdf5_fp in training_set_metadata is {}, "
                 "different from the current HDF5 file path {}. "
                 "Replacing it".format(training_set_metadata[DATA_TRAIN_HDF5_FP], not_none_set)
@@ -1082,11 +1080,27 @@ def build_dataset(
     mode=None,
 ):
     df_engine = backend.df_engine
+
+    if df_engine.partitioned:
+        # Indices must be unique across partitions for repartition and join to work.
+        # Many possible cases to catch, as indices depend on the read strategy. Some common cases:
+        # 1. dd.read_(xsv|parquet) is called with a small file (or single parquet file). `npartitions` is 1 in this
+        #   case, and indices should be unique. In this case, we don't need to reset_index.
+        # 2. dd.read_(xsv|parquet) is called with a large file (or multiple parquet files). `npartitions` is >1 in this
+        #   case, and indices are not guaranteed to be unique. In this case, we DO need to reset_index.
+        # 3. dd.from_pandas is called. Because it was pre-loaded as a pd.DataFrame, indices are not guaranteed to be
+        #   unique (we don't know the prior state of the DataFrame). This case is hard to handle without computing all
+        #   indices and checking for duplicates. For now, we assume the user passes in a DataFrame with unique indices.
+        #   TODO(geoffrey): determine an efficient way to check for non-unique indices.
+        if dataset_df.npartitions > 1 and not dataset_df.known_divisions:
+            logging.warning("dataset was partitioned during the read step. Resetting index to ensure unique indices")
+            dataset_df = df_engine.reset_index(dataset_df)
+
     dataset_df = df_engine.parallelize(dataset_df)
 
     sample_ratio = global_preprocessing_parameters["sample_ratio"]
     if sample_ratio < 1.0:
-        logger.debug(f"sample {sample_ratio} of data")
+        logging.debug(f"sample {sample_ratio} of data")
         dataset_df = dataset_df.sample(frac=sample_ratio)
 
     # If persisting DataFrames in memory is enabled, we want to do this after
@@ -1109,25 +1123,25 @@ def build_dataset(
     for feature_config in feature_configs:
         dataset_cols[feature_config[COLUMN]] = dataset_df[feature_config[COLUMN]]
 
-    logger.debug("build preprocessing parameters")
+    logging.debug("build preprocessing parameters")
     feature_name_to_preprocessing_parameters = build_preprocessing_parameters(
         dataset_cols, feature_configs, global_preprocessing_parameters, backend, metadata=metadata
     )
 
     # Happens after preprocessing parameters are built so we can use precomputed fill values.
-    logger.debug("handle missing values")
+    logging.debug("handle missing values")
     for feature_config in feature_configs:
         preprocessing_parameters = feature_name_to_preprocessing_parameters[feature_config[NAME]]
         handle_missing_values(dataset_cols, feature_config, preprocessing_parameters)
 
     # Happens after missing values are handled to avoid NaN casting issues.
-    logger.debug("cast columns")
+    logging.debug("cast columns")
     cast_columns(dataset_cols, feature_configs, backend)
 
     for callback in callbacks or []:
         callback.on_build_metadata_start(dataset_df, mode)
 
-    logger.debug("build metadata")
+    logging.debug("build metadata")
     metadata = build_metadata(
         metadata, feature_name_to_preprocessing_parameters, dataset_cols, feature_configs, backend
     )
@@ -1138,7 +1152,7 @@ def build_dataset(
     for callback in callbacks or []:
         callback.on_build_data_start(dataset_df, mode)
 
-    logger.debug("build data")
+    logging.debug("build data")
     proc_cols = build_data(dataset_cols, feature_configs, metadata, backend, skip_save_processed_input)
 
     for callback in callbacks or []:
@@ -1432,7 +1446,7 @@ def handle_missing_values(dataset_cols, feature, preprocessing_parameters):
 
 def load_hdf5(hdf5_file_path, preprocessing_params, backend, split_data=True, shuffle_training=False):
     # TODO dask: this needs to work with DataFrames
-    logger.info(f"Loading data from: {hdf5_file_path}")
+    logging.info(f"Loading data from: {hdf5_file_path}")
 
     def shuffle(df):
         return df.sample(frac=1).reset_index(drop=True)
@@ -1452,7 +1466,7 @@ def load_hdf5(hdf5_file_path, preprocessing_params, backend, split_data=True, sh
 
 
 def load_metadata(metadata_file_path):
-    logger.info(f"Loading metadata from: {metadata_file_path}")
+    logging.info(f"Loading metadata from: {metadata_file_path}")
     return data_utils.load_json(metadata_file_path)
 
 
@@ -1517,7 +1531,7 @@ def preprocess_for_training(
                 if cache_results is not None:
                     valid, *cache_values = cache_results
                     if valid:
-                        logger.info(
+                        logging.info(
                             "Found cached dataset and meta.json with the same filename "
                             "of the dataset, using them instead"
                         )
@@ -1527,7 +1541,7 @@ def preprocess_for_training(
                         cached = True
                         dataset = None
                     else:
-                        logger.info(
+                        logging.info(
                             "Found cached dataset and meta.json with the same filename "
                             "of the dataset, but checksum don't match, "
                             "if saving of processed input is not skipped "
@@ -1575,24 +1589,24 @@ def preprocess_for_training(
             # cache the dataset
             if backend.cache.can_cache(skip_save_processed_input):
                 with use_credentials(backend.cache.credentials):
-                    logger.debug("cache processed data")
+                    logging.debug("cache processed data")
                     processed = cache.put(*processed)
                     # set cached=True to ensure credentials are used correctly below
                     cached = True
             training_set, test_set, validation_set, training_set_metadata = processed
 
         with use_credentials(backend.cache.credentials if cached else None):
-            logger.debug("create training dataset")
+            logging.debug("create training dataset")
             training_dataset = backend.dataset_manager.create(training_set, config, training_set_metadata)
 
             validation_dataset = None
             if validation_set is not None:
-                logger.debug("create validation dataset")
+                logging.debug("create validation dataset")
                 validation_dataset = backend.dataset_manager.create(validation_set, config, training_set_metadata)
 
             test_dataset = None
             if test_set is not None:
-                logger.debug("create test dataset")
+                logging.debug("create test dataset")
                 test_dataset = backend.dataset_manager.create(test_set, config, training_set_metadata)
 
         return (training_dataset, validation_dataset, test_dataset, training_set_metadata)
@@ -1630,8 +1644,8 @@ def _preprocess_file_for_training(
     if dataset:
         # Use data and ignore _train, _validation and _test.
         # Also ignore data and train set metadata needs preprocessing
-        logger.info("Using full raw dataset, no hdf5 and json file " "with the same name have been found")
-        logger.info("Building dataset (it may take a while)")
+        logging.info("Using full raw dataset, no hdf5 and json file " "with the same name have been found")
+        logging.info("Building dataset (it may take a while)")
 
         dataset_df = read_fn(dataset, backend.df_engine.df_lib)
         training_set_metadata[SRC] = dataset
@@ -1652,8 +1666,8 @@ def _preprocess_file_for_training(
         # use data_train (including _validation and _test if they are present)
         # and ignore data and train set metadata
         # needs preprocessing
-        logger.info("Using training raw csv, no hdf5 and json " "file with the same name have been found")
-        logger.info("Building dataset (it may take a while)")
+        logging.info("Using training raw csv, no hdf5 and json " "file with the same name have been found")
+        logging.info("Building dataset (it may take a while)")
 
         concatenated_df = concatenate_files(training_set, validation_set, test_set, read_fn, backend)
         training_set_metadata[SRC] = training_set
@@ -1687,16 +1701,16 @@ def _preprocess_file_for_training(
     else:
         raise ValueError("either data or data_train have to be not None")
 
-    logger.debug("split train-val-test")
+    logging.debug("split train-val-test")
     training_data, validation_data, test_data = split_dataset(data, preprocessing_params, backend, random_seed)
 
     if dataset and backend.is_coordinator() and not skip_save_processed_input:
-        logger.debug("writing split file")
+        logging.debug("writing split file")
         splits_df = concatenate_splits(training_data, validation_data, test_data, backend)
         split_fp = get_split_path(dataset or training_set)
         backend.df_engine.to_parquet(splits_df, split_fp, index=True)
 
-    logger.info("Building dataset: DONE")
+    logging.info("Building dataset: DONE")
     if preprocessing_params["oversample_minority"] or preprocessing_params["undersample_majority"]:
         training_data = balance_data(training_data, config["output_features"], preprocessing_params, backend)
 
@@ -1723,10 +1737,10 @@ def _preprocess_df_for_training(
     """
     if dataset is not None:
         # needs preprocessing
-        logger.info("Using full dataframe")
+        logging.info("Using full dataframe")
     elif training_set is not None:
         # needs preprocessing
-        logger.info("Using training dataframe")
+        logging.info("Using training dataframe")
         dataset = concatenate_df(training_set, validation_set, test_set, backend)
 
         # Data is pre-split, so we override whatever split policy the user specified
@@ -1744,7 +1758,7 @@ def _preprocess_df_for_training(
             },
         }
 
-    logger.info("Building dataset (it may take a while)")
+    logging.info("Building dataset (it may take a while)")
 
     data, training_set_metadata = build_dataset(
         dataset,
@@ -1757,10 +1771,10 @@ def _preprocess_df_for_training(
         mode="training",
     )
 
-    logger.debug("split train-val-test")
+    logging.debug("split train-val-test")
     training_set, validation_set, test_set = split_dataset(data, preprocessing_params, backend, random_seed)
 
-    logger.info("Building dataset: DONE")
+    logging.info("Building dataset: DONE")
     if preprocessing_params["oversample_minority"] or preprocessing_params["undersample_majority"]:
         training_set = balance_data(training_set, config["output_features"], preprocessing_params, backend)
 
@@ -1802,7 +1816,7 @@ def preprocess_for_prediction(
     if data_format not in HDF5_FORMATS:
         num_overrides = override_in_memory_flag(config["input_features"], True)
         if num_overrides > 0:
-            logger.warning("Using in_memory = False is not supported " "with {} data format.".format(data_format))
+            logging.warning("Using in_memory = False is not supported " "with {} data format.".format(data_format))
 
     preprocessing_params = merge_dict(default_preprocessing_parameters, config[PREPROCESSING])
 
@@ -1836,7 +1850,7 @@ def preprocess_for_prediction(
             if cache_results is not None:
                 valid, *cache_values = cache_results
                 if valid:
-                    logger.info(
+                    logging.info(
                         "Found cached dataset and meta.json with the same filename "
                         "of the input file, using them instead"
                     )
@@ -1870,7 +1884,7 @@ def preprocess_for_prediction(
             training_set_metadata[DATA_TRAIN_HDF5_FP] = new_hdf5_fp
 
         if split != FULL:
-            logger.debug("split train-val-test")
+            logging.debug("split train-val-test")
             training_set, validation_set, test_set = split_dataset(dataset, preprocessing_params, backend)
 
     if split == TRAINING:
