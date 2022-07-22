@@ -959,9 +959,7 @@ class LudwigModel:
 
             if collect_predictions:
                 postproc_predictions = convert_predictions(
-                    postproc_predictions,
-                    self.model.output_features,
-                    return_type=return_type,
+                    postproc_predictions, self.model.output_features, return_type=return_type, backend=self.backend
                 )
 
             for callback in self.callbacks:
@@ -1141,6 +1139,8 @@ class LudwigModel:
                 batch_size = self.config[TRAINER]["eval_batch_size"]
             else:
                 batch_size = self.config[TRAINER]["batch_size"]
+
+            print("Model Experiment (Backend Status): ", self.backend)
 
             # predict
             try:
