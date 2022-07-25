@@ -5,9 +5,9 @@ name: pytest
 
 on:
   push:
-    branches: ["master", "*-stable"]
+    branches: ["master", "release-*"]
   pull_request:
-    branches: ["master", "*-stable"]
+    branches: ["master", "release-*"]
 
 # we want an ongoing run of this workflow to be canceled by a later commit
 # so that there is only one concurrent run of this workflow for each branch
@@ -47,7 +47,7 @@ jobs:
 
     name: py${{ matrix.python-version  }}, torch-${{ matrix.pytorch-version }}, ${{ matrix.test-markers }}, ${{ matrix.os }}
 
-    timeout-minutes: 70
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v2
       - name: Set up Python ${{ matrix.python-version }}
