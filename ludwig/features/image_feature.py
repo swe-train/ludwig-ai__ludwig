@@ -49,6 +49,7 @@ from ludwig.features.base_feature import BaseFeatureMixin, InputFeature
 from ludwig.schema.features.image_feature import ImageInputFeatureConfig
 from ludwig.schema.features.utils import register_input_feature
 from ludwig.utils.data_utils import get_abs_path
+from ludwig.utils.dataframe_utils import is_dask_series_or_df
 from ludwig.utils.fs_utils import has_remote_protocol, upload_h5
 from ludwig.utils.image_utils import (
     get_gray_default_image,
@@ -189,8 +190,8 @@ class ImageFeatureMixin(BaseFeatureMixin):
             img = img_entry
 
         if not isinstance(img, torch.Tensor):
-            # logging.info(f"Image with value {img} cannot be read")
-            warnings.warn(f"Image with value {img} cannot be read")
+            # warnings.warn("Image with value {0} cannot be read".format(img))
+            warnings.warn("Image with value " + repr(img) + " cannot be read")
             return None
 
         img_num_channels = num_channels_in_image(img)
@@ -476,6 +477,10 @@ class ImageFeatureMixin(BaseFeatureMixin):
             duration_reading = time.time() - start_reading
             logger.info(f"Time spent reading binary files and resizing: {duration_reading}")
 
+            num_failed_image_reads = proc_col.isna().sum()
+            if is_dask_series_or_df(num_failed_image_reads, backend):
+                num_failed_image_reads = num_failed_image_reads.compute()
+
             proc_col = backend.df_engine.map_objects(
                 proc_col, lambda row: default_image if not isinstance(row, np.ndarray) else row
             )
@@ -483,6 +488,7 @@ class ImageFeatureMixin(BaseFeatureMixin):
             proc_df[feature_config[PROC_COLUMN]] = proc_col
         else:
             num_images = len(abs_path_column)
+            num_failed_image_reads = 0
 
             data_fp = backend.cache.get_cache_path(wrap(metadata.get(SRC)), metadata.get(CHECKSUM), TRAINING)
             with upload_h5(data_fp) as h5_file:
@@ -492,10 +498,20 @@ class ImageFeatureMixin(BaseFeatureMixin):
                 )
                 for i, img_entry in enumerate(abs_path_column):
                     res = read_image_if_bytes_obj_and_resize(img_entry)
-                    image_dataset[i, :height, :width, :] = default_image if not isinstance(res, np.ndarray) else res
+                    if res is not None:
+                        image_dataset[i, :height, :width, :] = res
+                    else:
+                        image_dataset[i, :height, :width, :] = default_image
+                        num_failed_image_reads += 1
                 h5_file.flush()
 
             proc_df[feature_config[PROC_COLUMN]] = np.arange(num_images)
+
+        if num_failed_image_reads > 0:
+            logger.warning(
+                f"""Failed to read {num_failed_image_reads} images while preprocessing feature `{name}`. Using the
+                default image instead."""
+            )
 
         duration = time.time() - start
         logger.info(f"Time to process image column: {duration}")
