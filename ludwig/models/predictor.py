@@ -286,20 +286,41 @@ class RemotePredictor(Predictor):
 def calculate_overall_stats(output_features, predictions, dataset, training_set_metadata):
     overall_stats = {}
     for of_name, output_feature in output_features.items():
+        # print("Output Feature Name: ", of_name)
+        # print("\n")
+
         feature_metadata = training_set_metadata[output_feature.feature_name]
+
+        # print("Output feature metadata (before update): ", feature_metadata)
+        # print("\n")
+
         feature_metadata.update(training_set_metadata[output_feature.feature_name])
 
-        print("Feature Metadata: ", feature_metadata)
+        # print("Output Feature Metadata (after update): ", feature_metadata)
+        # print("\n")
 
         feature_df = predictions.loc[:, predictions.columns.str.startswith(of_name)]
+
+        # print("Feature DF (from predictions) Meta: ", feature_df._meta)
+
         feature_df = feature_df.rename(columns=lambda c: c[len(of_name) + 1 :])
 
-        target = dataset.loc[:, output_feature.proc_column]
+        # print("Feature DF rename Meta: ", feature_df._meta)
 
-        print("Feature DF info: ", feature_df)
-        print(type(feature_df))
-        print(feature_df.columns)
-        print(feature_df.dtypes)
+        # print("Feature DF info: ", feature_df)
+        # print(type(feature_df))
+        # print(feature_df.columns)
+        # print(feature_df.dtypes)
+
+        # print("\n")
+
+        # print("Feature DF head (5): ", feature_df.head(5, npartitions=-1))
+        # print("\n")
+
+        # print("Feature DF Meta: ", feature_df._meta)
+        # print("\n")
+
+        target = dataset.loc[:, output_feature.proc_column]
 
         if not isinstance(feature_df, pd.DataFrame):
             logger.warning(

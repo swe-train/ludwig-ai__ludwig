@@ -678,10 +678,26 @@ class RayPredictor(BasePredictor):
             num_gpus=num_gpus,
         )
 
+        # print("Ray Predictor")
+        # print(">>>> Predictions Type (from map batches)", type(predictions))
+
+        # # print("Repartitioning...")
+        # # predictions = predictions.repartition(10)
         predictions = self.df_engine.from_ray_dataset(predictions)
+
+        # print(">>> Num partitions: ", predictions.npartitions)
+        # print(">>>> Num records per partition: ", predictions.map_partitions(len).compute())
+
+        # print(">>>> Prediction after (conversion from ray dataset): ", type(predictions))
+        # print(">>>> Predictions after (conversion from ray dataset) Meta: ", predictions._meta)
+        # print(">>>> Predictions after (conversion from ray dataset) Meta Non-empty: ", predictions._meta_nonempty)
 
         for of_feature in self.model.output_features.values():
             predictions = of_feature.unflatten(predictions)
+
+        # print(">>>> Prediction after unflatten: ", type(predictions))
+        # print(">>>> Prediction after unflatten Meta: ", predictions._meta)
+        # print(">>>> Prediction after unflatten Meta Non-empty: ", predictions._meta_nonempty)
 
         return predictions
 

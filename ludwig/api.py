@@ -1140,8 +1140,6 @@ class LudwigModel:
             else:
                 batch_size = self.config[TRAINER]["batch_size"]
 
-            print("Model Experiment (Backend Status): ", self.backend)
-
             # predict
             try:
                 eval_stats, _, _ = self.evaluate(
