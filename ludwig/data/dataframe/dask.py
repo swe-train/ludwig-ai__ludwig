@@ -20,7 +20,10 @@ from typing import Dict
 import dask
 import dask.array as da
 import dask.dataframe as dd
+import ray
 from dask.diagnostics import ProgressBar
+from ray.data.block import Block, BlockAccessor
+from ray.util.client.common import ClientObjectRef
 from ray.util.dask import ray_dask_get
 
 from ludwig.data.dataframe.base import DataFrameEngine
@@ -175,10 +178,30 @@ class DaskEngine(DataFrameEngine):
         return from_dask(df)
 
     def from_ray_dataset(self, dataset) -> dd.DataFrame:
-        return dataset.to_dask()
+        return self._to_dask(dataset)
 
     def reset_index(self, df):
         return reset_index_across_all_partitions(df)
+
+    def _to_dask(self, dataset) -> dd.DataFrame:
+        """Custom Ray to Dask conversion implementation to pass in meta during dd.DataFrame creation."""
+
+        @dask.delayed
+        def block_to_df(block: Block):
+            block = BlockAccessor.for_block(block)
+            if isinstance(block, (ray.ObjectRef, ClientObjectRef)):
+                raise ValueError(
+                    "Dataset.to_dask() must be used with Dask-on-Ray, please "
+                    "set the Dask scheduler to ray_dask_get (located in "
+                    "ray.util.dask)."
+                )
+            return block.to_pandas()
+
+        # Use first row from ray dataset to generate meta
+        meta = dataset.limit(1).to_pandas()
+        ddf = dd.from_delayed([block_to_df(block) for block in dataset.get_internal_block_refs()], meta=meta)
+
+        return ddf
 
     @property
     def array_lib(self):
