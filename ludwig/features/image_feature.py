@@ -475,9 +475,10 @@ class ImageFeatureMixin(BaseFeatureMixin):
             duration_reading = time.time() - start_reading
             logging.info(f"Time spent reading binary files and resizing: {duration_reading}")
 
-            num_failed_image_reads = proc_col.isna().sum()
-            if is_dask_series_or_df(num_failed_image_reads, backend):
-                num_failed_image_reads = num_failed_image_reads.compute()
+            if is_dask_series_or_df(proc_col, backend):
+                num_failed_image_reads = proc_col.isna().sum().compute()
+            else:
+                num_failed_image_reads = proc_col.isna().sum()
 
             proc_col = backend.df_engine.map_objects(
                 proc_col, lambda row: default_image if not isinstance(row, np.ndarray) else row
