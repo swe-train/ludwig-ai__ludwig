@@ -1208,6 +1208,9 @@ def build_dataset(
         col_name_to_dtype[col_name] = col.dtype
     dataset = dataset.astype(col_name_to_dtype)
 
+    # Remove partitions that are empty after removing NaNs
+    dataset = backend.df_engine.remove_empty_partitions(dataset)
+
     return dataset, metadata
 
 
@@ -1596,7 +1599,17 @@ def preprocess_for_training(
             training_set, test_set, validation_set, training_set_metadata = processed
             processed = (training_set, test_set, validation_set, training_set_metadata)
 
+            print("training_set", backend.df_engine.compute(training_set), len(training_set), training_set.npartitions)
+            print("test_set", backend.df_engine.compute(test_set), len(test_set), test_set.npartitions)
+            print(
+                "validation_set",
+                backend.df_engine.compute(validation_set),
+                len(validation_set),
+                validation_set.npartitions,
+            )
+
             # cache the dataset
+            print("skip_save_processed_input", skip_save_processed_input)
             if backend.cache.can_cache(skip_save_processed_input):
                 with use_credentials(backend.cache.credentials):
                     logging.debug("cache processed data")

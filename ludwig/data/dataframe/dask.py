@@ -186,6 +186,20 @@ class DaskEngine(DataFrameEngine):
     def reset_index(self, df):
         return reset_index_across_all_partitions(df)
 
+    def remove_empty_partitions(self, df):
+        ll = list(df.map_partitions(len).compute())
+        df_delayed = df.to_delayed()
+        df_delayed_new = list()
+        pempty = None
+        for ix, n in enumerate(ll):
+            if 0 == n:
+                pempty = df.get_partition(ix)
+            else:
+                df_delayed_new.append(df_delayed[ix])
+        if pempty is not None:
+            df = dd.from_delayed(df_delayed_new, meta=pempty)
+        return df
+
     @property
     def array_lib(self):
         return da
