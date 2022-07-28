@@ -21,6 +21,7 @@ import dask
 import dask.array as da
 import dask.dataframe as dd
 import ray
+from dask.dataframe.utils import make_meta
 from dask.diagnostics import ProgressBar
 from ray.data.block import Block, BlockAccessor
 from ray.util.client.common import ClientObjectRef
@@ -191,6 +192,8 @@ class DaskEngine(DataFrameEngine):
     def _to_dask(self, dataset) -> dd.DataFrame:
         """Custom Ray to Dask conversion implementation to pass in meta during dd.DataFrame creation."""
 
+        print("Reached custom to_dask implementation")
+
         @dask.delayed
         def block_to_df(block: Block):
             block = BlockAccessor.for_block(block)
@@ -202,9 +205,16 @@ class DaskEngine(DataFrameEngine):
                 )
             return block.to_pandas()
 
-        # Use first row from ray dataset to generate meta
-        meta = dataset.limit(1).to_pandas()
+        # Use first few rows from ray dataset to generate meta (since first row could have NaNs)
+        meta = dataset.limit(5).to_pandas()
+        meta = meta.dtypes.apply(lambda x: x.name).to_dict()
+
+        print("Meta: ", meta)
+
+        print("Make Meta: ", make_meta(meta))
         ddf = dd.from_delayed([block_to_df(block) for block in dataset.get_internal_block_refs()], meta=meta)
+
+        print("DDF columns: ", ddf.columns)
 
         return ddf
 
