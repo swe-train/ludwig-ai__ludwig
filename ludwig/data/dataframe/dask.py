@@ -21,7 +21,6 @@ import dask
 import dask.array as da
 import dask.dataframe as dd
 import ray
-from dask.dataframe.utils import make_meta
 from dask.diagnostics import ProgressBar
 from ray.data.block import Block, BlockAccessor
 from ray.util.client.common import ClientObjectRef
@@ -184,7 +183,16 @@ class DaskEngine(DataFrameEngine):
         return from_dask(df)
 
     def from_ray_dataset(self, dataset) -> dd.DataFrame:
-        return self._to_dask(dataset)
+        dask_df = dataset.to_dask()
+        partition_lengths = list(dask_df.map_partitions(len).compute())
+
+        print("Num Partitions: ", len(partition_lengths))
+        print("Partition Lengths: ", partition_lengths)
+        print("Num partitions of length 0: ", len(list(filter(lambda x: x == 0, partition_lengths))))
+
+        # return self._to_dask(dataset)
+
+        return dask_df
 
     def reset_index(self, df):
         return reset_index_across_all_partitions(df)
@@ -206,15 +214,17 @@ class DaskEngine(DataFrameEngine):
             return block.to_pandas()
 
         # Use first few rows from ray dataset to generate meta (since first row could have NaNs)
-        meta = dataset.limit(5).to_pandas()
+        meta = dataset.limit(100).to_pandas()
         meta = meta.dtypes.apply(lambda x: x.name).to_dict()
-
-        print("Meta: ", meta)
-
-        print("Make Meta: ", make_meta(meta))
         ddf = dd.from_delayed([block_to_df(block) for block in dataset.get_internal_block_refs()], meta=meta)
 
         print("DDF columns: ", ddf.columns)
+
+        partition_lengths = list(ddf.map_partitions(len).compute())
+
+        print("Num Partitions: ", len(partition_lengths))
+        print("Partition Lengths: ", partition_lengths)
+        print("Num partitions of length 0: ", len(list(filter(lambda x: x == 0, partition_lengths))))
 
         return ddf
 

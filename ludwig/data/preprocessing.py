@@ -1205,6 +1205,14 @@ def build_dataset(
         col_name_to_dtype[col_name] = col.dtype
     dataset = dataset.astype(col_name_to_dtype)
 
+    print("Within build dataset:")
+
+    partition_lengths = list(dataset.map_partitions(len).compute())
+
+    print(">> Num Partitions: ", len(partition_lengths))
+    print(">> Partition Lengths: ", partition_lengths)
+    print(">> Num partitions of length 0: ", len(list(filter(lambda x: x == 0, partition_lengths))))
+
     return dataset, metadata
 
 

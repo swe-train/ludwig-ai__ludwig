@@ -217,4 +217,12 @@ def split_dataset(
             "Encountered an empty training set while splitting data. Please double check the preprocessing split "
             "configuration."
         )
+    for dataset in datasets:
+        print("Within split_dataset:")
+
+        partition_lengths = list(dataset.map_partitions(len).compute())
+
+        print(">> Num Partitions: ", len(partition_lengths))
+        print(">> Partition Lengths: ", partition_lengths)
+        print(">> Num partitions of length 0: ", len(list(filter(lambda x: x == 0, partition_lengths))))
     return datasets
