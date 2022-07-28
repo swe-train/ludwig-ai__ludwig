@@ -190,14 +190,14 @@ class DaskEngine(DataFrameEngine):
         ll = list(df.map_partitions(len).compute())
         df_delayed = df.to_delayed()
         df_delayed_new = list()
-        pempty = None
+        empty_partition = None
         for ix, n in enumerate(ll):
-            if 0 == n:
-                pempty = df.get_partition(ix)
+            if n == 0:
+                empty_partition = df.get_partition(ix)
             else:
                 df_delayed_new.append(df_delayed[ix])
-        if pempty is not None:
-            df = dd.from_delayed(df_delayed_new, meta=pempty)
+        if empty_partition is not None:
+            df = dd.from_delayed(df_delayed_new, meta=empty_partition)
         return df
 
     @property
