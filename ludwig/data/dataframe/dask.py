@@ -187,6 +187,7 @@ class DaskEngine(DataFrameEngine):
         return reset_index_across_all_partitions(df)
 
     def remove_empty_partitions(self, df):
+        # Reference: https://stackoverflow.com/questions/47812785/remove-empty-partitions-in-dask
         ll = list(df.map_partitions(len).compute())
         df_delayed = df.to_delayed()
         df_delayed_new = list()
