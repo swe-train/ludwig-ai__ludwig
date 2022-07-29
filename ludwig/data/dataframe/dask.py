@@ -23,6 +23,7 @@ import dask.dataframe as dd
 import ray
 from dask.diagnostics import ProgressBar
 from ray.data.block import Block, BlockAccessor
+from ray.data.extensions import TensorDtype
 from ray.util.client.common import ClientObjectRef
 from ray.util.dask import ray_dask_get
 
@@ -183,12 +184,6 @@ class DaskEngine(DataFrameEngine):
         return from_dask(df)
 
     def from_ray_dataset(self, dataset) -> dd.DataFrame:
-        return dataset.to_dask()
-
-    def reset_index(self, df):
-        return reset_index_across_all_partitions(df)
-
-    def _to_dask(self, dataset) -> dd.DataFrame:
         """Custom Ray to Dask conversion implementation to pass in meta during dd.DataFrame creation."""
 
         print("Reached custom to_dask implementation")
@@ -206,10 +201,14 @@ class DaskEngine(DataFrameEngine):
 
         # Use first few rows from ray dataset to generate meta (since first row could have NaNs)
         meta = dataset.limit(100).to_pandas()
-        meta = meta.dtypes.apply(lambda x: x.name).to_dict()
+        # HACK: Dask cannot handle TensorDtype yet, so we ensure those are of dtype object
+        meta = {k: object if isinstance(dtype, TensorDtype) else dtype for k, dtype in meta.dtypes.items()}
         ddf = dd.from_delayed([block_to_df(block) for block in dataset.get_internal_block_refs()], meta=meta)
 
         return ddf
+
+    def reset_index(self, df):
+        return reset_index_across_all_partitions(df)
 
     def remove_empty_partitions(self, df):
         # Reference: https://stackoverflow.com/questions/47812785/remove-empty-partitions-in-dask
