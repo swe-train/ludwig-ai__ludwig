@@ -183,16 +183,7 @@ class DaskEngine(DataFrameEngine):
         return from_dask(df)
 
     def from_ray_dataset(self, dataset) -> dd.DataFrame:
-        dask_df = dataset.to_dask()
-        partition_lengths = list(dask_df.map_partitions(len).compute())
-
-        print("Num Partitions: ", len(partition_lengths))
-        print("Partition Lengths: ", partition_lengths)
-        print("Num partitions of length 0: ", len(list(filter(lambda x: x == 0, partition_lengths))))
-
-        # return self._to_dask(dataset)
-
-        return dask_df
+        return dataset.to_dask()
 
     def reset_index(self, df):
         return reset_index_across_all_partitions(df)
@@ -218,15 +209,22 @@ class DaskEngine(DataFrameEngine):
         meta = meta.dtypes.apply(lambda x: x.name).to_dict()
         ddf = dd.from_delayed([block_to_df(block) for block in dataset.get_internal_block_refs()], meta=meta)
 
-        print("DDF columns: ", ddf.columns)
-
-        partition_lengths = list(ddf.map_partitions(len).compute())
-
-        print("Num Partitions: ", len(partition_lengths))
-        print("Partition Lengths: ", partition_lengths)
-        print("Num partitions of length 0: ", len(list(filter(lambda x: x == 0, partition_lengths))))
-
         return ddf
+
+    def remove_empty_partitions(self, df):
+        # Reference: https://stackoverflow.com/questions/47812785/remove-empty-partitions-in-dask
+        ll = list(df.map_partitions(len).compute())
+        df_delayed = df.to_delayed()
+        df_delayed_new = list()
+        empty_partition = None
+        for ix, n in enumerate(ll):
+            if n == 0:
+                empty_partition = df.get_partition(ix)
+            else:
+                df_delayed_new.append(df_delayed[ix])
+        if empty_partition is not None:
+            df = dd.from_delayed(df_delayed_new, meta=empty_partition)
+        return df
 
     @property
     def array_lib(self):

@@ -75,6 +75,9 @@ class PandasEngine(DataFrameEngine):
     def reset_index(self, df):
         return df.reset_index(drop=True)
 
+    def remove_empty_partitions(self, df):
+        return df
+
     @property
     def array_lib(self):
         return np

@@ -17,6 +17,7 @@ import logging
 from typing import Any, Dict, List, Tuple
 
 import numpy as np
+import pandas as pd
 import torch
 
 from ludwig.constants import (
@@ -364,8 +365,8 @@ class BinaryOutputFeature(BinaryFeatureMixin, OutputFeature):
 
     def postprocess_predictions(
         self,
-        result,
-        metadata,
+        result: pd.DataFrame,
+        metadata: Dict[str, Any],
     ):
         class_names = ["False", "True"]
         if "bool2str" in metadata:
