@@ -61,6 +61,9 @@ class PandasEngine(DataFrameEngine):
     def split(self, df, probabilities):
         return split_by_slices(df.iloc, len(df), probabilities)
 
+    def remove_empty_partitions(self, df):
+        return df
+
     def to_parquet(self, df, path, index=False):
         df.to_parquet(path, engine="pyarrow", index=index)
 
@@ -74,9 +77,6 @@ class PandasEngine(DataFrameEngine):
 
     def reset_index(self, df):
         return df.reset_index(drop=True)
-
-    def remove_empty_partitions(self, df):
-        return df
 
     @property
     def array_lib(self):
