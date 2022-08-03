@@ -472,13 +472,12 @@ class ImageFeatureMixin(BaseFeatureMixin):
                 abs_path_column, map_fn=read_image_if_bytes_obj_and_resize, file_size=average_file_size
             )
 
-            duration_reading = time.time() - start_reading
-            logging.info(f"Time spent reading binary files and resizing: {duration_reading}")
+            end_reading = time.time() - start_reading
+            logging.info(f"Time spent reading image column: {end_reading}")
 
-            if is_dask_series_or_df(proc_col, backend):
-                num_failed_image_reads = proc_col.isna().sum().compute()
-            else:
-                num_failed_image_reads = proc_col.isna().sum()
+            num_failed_image_reads = (
+                proc_col.isna().sum().compute() if is_dask_series_or_df(proc_col, backend) else proc_col.isna().sum()
+            )
 
             proc_col = backend.df_engine.map_objects(
                 proc_col, lambda row: default_image if not isinstance(row, np.ndarray) else row
@@ -497,7 +496,7 @@ class ImageFeatureMixin(BaseFeatureMixin):
                 )
                 for i, img_entry in enumerate(abs_path_column):
                     res = read_image_if_bytes_obj_and_resize(img_entry)
-                    if res:
+                    if isinstance(res, np.ndarray):
                         image_dataset[i, :height, :width, :] = res
                     else:
                         image_dataset[i, :height, :width, :] = default_image
@@ -508,8 +507,8 @@ class ImageFeatureMixin(BaseFeatureMixin):
 
         if num_failed_image_reads > 0:
             logging.warning(
-                f"""Failed to read {num_failed_image_reads} images while preprocessing feature `{name}`. Using
-                default image for these rows in the dataset."""
+                f"Failed to read {num_failed_image_reads} images while preprocessing feature `{name}`. "
+                "Using default image for these rows in the dataset."
             )
 
         duration = time.time() - start

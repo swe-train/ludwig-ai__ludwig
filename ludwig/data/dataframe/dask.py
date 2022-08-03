@@ -20,12 +20,7 @@ from typing import Dict
 import dask
 import dask.array as da
 import dask.dataframe as dd
-import ray
 from dask.diagnostics import ProgressBar
-from ray.data.block import Block, BlockAccessor
-from ray.data.extensions import TensorDtype
-from ray.util.client.common import ClientObjectRef
-from ray.util.dask import ray_dask_get
 
 from ludwig.data.dataframe.base import DataFrameEngine
 from ludwig.utils.data_utils import split_by_slices
@@ -61,6 +56,8 @@ def reset_index_across_all_partitions(df):
 
 class DaskEngine(DataFrameEngine):
     def __init__(self, parallelism=None, persist=True, _use_ray=True, **kwargs):
+        from ray.util.dask import ray_dask_get
+
         self._parallelism = parallelism
         self._persist = persist
         if _use_ray:
@@ -141,6 +138,8 @@ class DaskEngine(DataFrameEngine):
         return series.map_partitions(map_fn, meta=meta)
 
     def map_batches(self, series, map_fn):
+        import ray.data
+
         ds = ray.data.from_dask(series)
         ds = ds.map_batches(map_fn, batch_format="pandas")
         return ds.to_dask()
@@ -203,26 +202,7 @@ class DaskEngine(DataFrameEngine):
         return from_dask(df)
 
     def from_ray_dataset(self, dataset) -> dd.DataFrame:
-        """Custom Ray to Dask conversion implementation to pass in meta during dd.DataFrame creation."""
-
-        @dask.delayed
-        def block_to_df(block: Block):
-            block = BlockAccessor.for_block(block)
-            if isinstance(block, (ray.ObjectRef, ClientObjectRef)):
-                raise ValueError(
-                    "Dataset.to_dask() must be used with Dask-on-Ray, please "
-                    "set the Dask scheduler to ray_dask_get (located in "
-                    "ray.util.dask)."
-                )
-            return block.to_pandas()
-
-        # Use first few rows from ray dataset to generate meta (since first row could have NaNs)
-        meta = dataset.limit(100).to_pandas()
-        # HACK: Dask cannot handle TensorDtype yet, so we ensure those are of dtype object
-        meta = {k: object if isinstance(dtype, TensorDtype) else dtype for k, dtype in meta.dtypes.items()}
-        ddf = dd.from_delayed([block_to_df(block) for block in dataset.get_internal_block_refs()], meta=meta)
-
-        return ddf
+        return dataset.to_dask()
 
     def reset_index(self, df):
         return reset_index_across_all_partitions(df)
