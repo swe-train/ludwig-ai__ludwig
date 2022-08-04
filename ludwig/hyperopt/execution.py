@@ -825,6 +825,11 @@ class RayTuneExecutor:
         if "metric_score" in analysis.results_df.columns:
             ordered_trials = analysis.results_df.sort_values("metric_score", ascending=self.goal != MAXIMIZE)
 
+            print("Ordered Trials")
+            print(ordered_trials[["training_stats", "eval_stats"]])
+            print(ordered_trials.columns)
+            print("\n")
+
             # Catch nans in edge case where the trial doesn't complete
             temp_ordered_trials = []
             for kwargs in ordered_trials.to_dict(orient="records"):
@@ -833,17 +838,23 @@ class RayTuneExecutor:
                         kwargs[key] = {}
                 temp_ordered_trials.append(kwargs)
 
+            print("Temp ordered trials keys: ", temp_ordered_trials[0].keys(), end="\n\n")
+
             # Trials w/empty eval_stats fields & non-empty training_stats fields ran intermediate
             # tune.report call(s) but were terminated before reporting eval_stats from post-train
             # evaluation (e.g., trial stopped due to time budget or relatively poor performance.)
             # For any such trials, run model evaluation for the best model in that trial & record
             # results in ordered_trials which is returned & is persisted in hyperopt_statistics.json.
+            print("Iterating through temp ordered trials")
             for trial in temp_ordered_trials:
                 if trial["eval_stats"] == "{}" and trial["training_stats"] != "{}":
+                    print("Trial found with empty eval_stats fields & non-empty training stats field: ", trial)
                     # Evaluate the best model on the eval_split, which is validation_set
                     if validation_set is not None and validation_set.size > 0:
                         trial_path = trial["trial_dir"]
                         best_model_path = self._get_best_model_path(trial_path, analysis)
+                        print(">>>> Best Model Path: ", best_model_path)
+                        print(">>> Trial eval stats before: ", trial["eval_stats"])
                         if best_model_path is not None:
                             self._evaluate_best_model(
                                 trial,
@@ -860,6 +871,7 @@ class RayTuneExecutor:
                                 backend,
                                 debug,
                             )
+                            print(">>> Trial eval stats after: ", trial["eval_stats"])
                         else:
                             logger.warning("Skipping evaluation as no model checkpoints were available")
                     else:
