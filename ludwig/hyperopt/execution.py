@@ -783,6 +783,12 @@ class RayTuneExecutor:
             self.sync_config = tune.SyncConfig(sync_to_driver=NamespacedKubernetesSyncer(self.kubernetes_namespace))
             self.sync_client = KubernetesSyncClient(self.kubernetes_namespace)
 
+        print("Sync Config: ", self.sync_config)
+        try:
+            print("Sync Config Dict: ", self.sync_config.__dict__)
+        except Exception as e:
+            pass
+
         run_experiment_trial_params = tune.with_parameters(run_experiment_trial, local_hyperopt_dict=hyperopt_dict)
         register_trainable(f"trainable_func_f{hash_dict(config).decode('ascii')}", run_experiment_trial_params)
 
