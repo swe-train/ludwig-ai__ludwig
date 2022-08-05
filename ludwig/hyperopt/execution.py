@@ -822,6 +822,8 @@ class RayTuneExecutor:
             # NOTE: Cascading the exception with "raise _ from e" still results in hanging.
             raise RuntimeError(f"Encountered Ray Tune error: {e}")
 
+        print("Analysis Results DF (Within Execute): ", analysis.results_df)
+
         if "metric_score" in analysis.results_df.columns:
             ordered_trials = analysis.results_df.sort_values("metric_score", ascending=self.goal != MAXIMIZE)
 
@@ -829,6 +831,11 @@ class RayTuneExecutor:
             print(ordered_trials[["training_stats", "eval_stats"]])
             print(ordered_trials.columns)
             print("\n")
+
+            logger.info("Ordered Trials")
+            logger.info(ordered_trials[["training_stats", "eval_stats"]])
+            logger.info(ordered_trials.columns)
+            logger.info("\n")
 
             # Catch nans in edge case where the trial doesn't complete
             temp_ordered_trials = []
@@ -838,7 +845,7 @@ class RayTuneExecutor:
                         kwargs[key] = {}
                 temp_ordered_trials.append(kwargs)
 
-            print("Temp ordered trials keys: ", temp_ordered_trials[0].keys(), end="\n\n")
+            logger.info("Temp ordered trials keys: ", temp_ordered_trials[0].keys(), end="\n\n")
 
             # Trials w/empty eval_stats fields & non-empty training_stats fields ran intermediate
             # tune.report call(s) but were terminated before reporting eval_stats from post-train
