@@ -824,7 +824,10 @@ class RayTuneExecutor:
             raise RuntimeError(f"Encountered Ray Tune error: {e}")
 
         print("Analysis Results DF (Within Execute): ", analysis.results_df)
-        print("Analysis Results DF Best Trial (Within Execute): ", analysis.results_df.)
+        try:
+            print("Analysis Results DF Best Trial (Within Execute): ", analysis.best_checkpoint)
+        except Exception as e:
+            pass
 
         if "metric_score" in analysis.results_df.columns:
             ordered_trials = analysis.results_df.sort_values("metric_score", ascending=self.goal != MAXIMIZE)
