@@ -373,6 +373,7 @@ class RayTuneExecutor:
             self.sync_client.sync_down(remote_checkpoint_dir, trial_path)
             self.sync_client.wait_or_retry()
         self._remove_partial_checkpoints(trial_path)  # needed by get_best_checkpoint
+        print("Model Path (in _get_best_model_path): ", trial_path)
         mod_path = None
         try:
             mod_path = analysis.get_best_checkpoint(trial_path.rstrip("/"))
@@ -823,6 +824,7 @@ class RayTuneExecutor:
             raise RuntimeError(f"Encountered Ray Tune error: {e}")
 
         print("Analysis Results DF (Within Execute): ", analysis.results_df)
+        print("Analysis Results DF Best Trial (Within Execute): ", analysis.results_df.)
 
         if "metric_score" in analysis.results_df.columns:
             ordered_trials = analysis.results_df.sort_values("metric_score", ascending=self.goal != MAXIMIZE)
@@ -832,11 +834,6 @@ class RayTuneExecutor:
             print(ordered_trials.columns)
             print("\n")
 
-            logger.info("Ordered Trials")
-            logger.info(ordered_trials[["training_stats", "eval_stats"]])
-            logger.info(ordered_trials.columns)
-            logger.info("\n")
-
             # Catch nans in edge case where the trial doesn't complete
             temp_ordered_trials = []
             for kwargs in ordered_trials.to_dict(orient="records"):
@@ -845,7 +842,7 @@ class RayTuneExecutor:
                         kwargs[key] = {}
                 temp_ordered_trials.append(kwargs)
 
-            logger.info("Temp ordered trials keys: ", temp_ordered_trials[0].keys(), end="\n\n")
+            print("Temp ordered trials keys: ", temp_ordered_trials[0].keys(), end="\n\n")
 
             # Trials w/empty eval_stats fields & non-empty training_stats fields ran intermediate
             # tune.report call(s) but were terminated before reporting eval_stats from post-train
@@ -859,9 +856,10 @@ class RayTuneExecutor:
                     # Evaluate the best model on the eval_split, which is validation_set
                     if validation_set is not None and validation_set.size > 0:
                         trial_path = trial["trial_dir"]
+                        print(">>>> Trial Path: ", trial_path)
                         best_model_path = self._get_best_model_path(trial_path, analysis)
                         print(">>>> Best Model Path: ", best_model_path)
-                        print(">>> Trial eval stats before: ", trial["eval_stats"])
+                        print(">>>> Trial eval stats before: ", trial["eval_stats"])
                         if best_model_path is not None:
                             self._evaluate_best_model(
                                 trial,
