@@ -178,7 +178,7 @@ class RayTuneExecutor:
         self.time_budget_s = time_budget_s
         self.max_concurrent_trials = max_concurrent_trials
         self.sync_config = None
-        self.sync_client = None
+        self.sync_client = kwargs.get("sync_client", None)
         # Head node is the node to which all checkpoints are synced if running on a K8s cluster.
         self.head_node_ip = ray.util.get_node_ip_address()
 
@@ -768,19 +768,20 @@ class RayTuneExecutor:
                 else [{}] + [{"CPU": self._cpu_resources_per_trial_non_none}]
             )
 
-        if has_remote_protocol(output_directory):
-            run_experiment_trial = tune.durable(run_experiment_trial)
-            self.sync_config = tune.SyncConfig(sync_to_driver=False, upload_dir=output_directory)
-            if _ray_114:
-                self.sync_client = get_node_to_storage_syncer(SyncConfig(upload_dir=output_directory))
-            else:
-                self.sync_client = get_cloud_sync_client(output_directory)
-            output_directory = None
-        elif self.kubernetes_namespace:
-            from ray.tune.integration.kubernetes import KubernetesSyncClient, NamespacedKubernetesSyncer
+        if not self.sync_client:
+            if has_remote_protocol(output_directory):
+                run_experiment_trial = tune.durable(run_experiment_trial)
+                self.sync_config = tune.SyncConfig(sync_to_driver=False, upload_dir=output_directory)
+                if _ray_114:
+                    self.sync_client = get_node_to_storage_syncer(SyncConfig(upload_dir=output_directory))
+                else:
+                    self.sync_client = get_cloud_sync_client(output_directory)
+                output_directory = None
+            elif self.kubernetes_namespace:
+                from ray.tune.integration.kubernetes import KubernetesSyncClient, NamespacedKubernetesSyncer
 
-            self.sync_config = tune.SyncConfig(sync_to_driver=NamespacedKubernetesSyncer(self.kubernetes_namespace))
-            self.sync_client = KubernetesSyncClient(self.kubernetes_namespace)
+                self.sync_config = tune.SyncConfig(sync_to_driver=NamespacedKubernetesSyncer(self.kubernetes_namespace))
+                self.sync_client = KubernetesSyncClient(self.kubernetes_namespace)
 
         run_experiment_trial_params = tune.with_parameters(run_experiment_trial, local_hyperopt_dict=hyperopt_dict)
         register_trainable(f"trainable_func_f{hash_dict(config).decode('ascii')}", run_experiment_trial_params)

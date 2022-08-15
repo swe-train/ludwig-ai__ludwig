@@ -18,10 +18,14 @@ from ludwig.constants import (
     HYPEROPT,
     INPUT_FEATURES,
     LOSS,
+    METRIC,
     MINIMIZE,
     NAME,
     OUTPUT_FEATURES,
+    PARAMETERS,
     PREPROCESSING,
+    SEARCH_ALG,
+    SPLIT,
     TEST,
     TRAINING,
     TYPE,
@@ -215,12 +219,12 @@ def hyperopt(
     logging.info(pformat(dict(features_eligible_for_shared_params), indent=4))
     logging.info("\n")
 
-    search_alg = hyperopt_config["search_alg"]
+    search_alg = hyperopt_config[SEARCH_ALG]
     executor = hyperopt_config[EXECUTOR]
-    parameters = hyperopt_config["parameters"]
-    split = hyperopt_config["split"]
+    parameters = hyperopt_config[PARAMETERS]
+    split = hyperopt_config[SPLIT]
     output_feature = hyperopt_config["output_feature"]
-    metric = hyperopt_config["metric"]
+    metric = hyperopt_config[METRIC]
     goal = hyperopt_config["goal"]
 
     ######################
@@ -284,8 +288,10 @@ def hyperopt(
                 )
             )
 
+    sync_client = kwargs.get("sync_client", None)
+
     hyperopt_executor = get_build_hyperopt_executor(executor[TYPE])(
-        parameters, output_feature, metric, goal, split, search_alg=search_alg, **executor
+        parameters, output_feature, metric, goal, split, search_alg=search_alg, sync_client=sync_client, **executor
     )
 
     # Explicitly default to a local backend to avoid picking up Ray or Horovod
