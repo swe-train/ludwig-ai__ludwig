@@ -48,6 +48,7 @@ class MlflowCallback(Callback):
 
     def on_hyperopt_init(self, experiment_name):
         self.experiment_id = _get_or_create_experiment_id(experiment_name)
+        logging.info(f"[MLFlow Callback] Experiment Id [on hyperopt init]: {self.experiment_id}")
 
     def on_hyperopt_trial_start(self, parameters):
         # Filter out mlflow params like tracking URI, experiment ID, etc.
@@ -65,9 +66,16 @@ class MlflowCallback(Callback):
         # Experiment may already have been set during hyperopt init, in
         # which case we don't want to create a new experiment / run, as
         # this should be handled by the executor.
+
+        logging.info(f"[MLFlow Callback] (on train init) Experiment Name: {experiment_name}")
+        logging.info(f"[MLFlow Callback] (on train init) Output Directory: {output_directory}")
+        logging.info(f"[MLFlow Callback] (on train init) Resume Directory: {resume_directory}")
+
         if self.experiment_id is None:
             mlflow.end_run()
             self.experiment_id = _get_or_create_experiment_id(experiment_name)
+
+            logging.info(f"[MLFlow Callback] Experiment ID (on train init): {self.experiment_id}")
 
             run_id = None
             if resume_directory is not None:
