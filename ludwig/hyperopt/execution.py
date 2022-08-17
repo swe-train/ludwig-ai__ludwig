@@ -177,6 +177,7 @@ class RayTuneExecutor:
         self.kubernetes_namespace = kubernetes_namespace
         self.time_budget_s = time_budget_s
         self.max_concurrent_trials = max_concurrent_trials
+        self.sync_config = None
         self.sync_client = kwargs.get("sync_client", None)
         # Head node is the node to which all checkpoints are synced if running on a K8s cluster.
         self.head_node_ip = ray.util.get_node_ip_address()

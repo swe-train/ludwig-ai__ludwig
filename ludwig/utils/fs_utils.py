@@ -33,6 +33,17 @@ import urllib3
 from filelock import FileLock
 from fsspec.core import split_protocol
 
+from ludwig.constants import (
+    AWS_ACCESS_KEY_ID,
+    AWS_SECRET_KEY_ID,
+    CLIENT_KWARGS,
+    ENDPOINT_URL,
+    KEY,
+    MLFLOW_S3_ENDPOINT_URL,
+    S3,
+    SECRET,
+)
+
 
 def get_fs_and_path(url):
     protocol, path = split_protocol(url)
@@ -40,7 +51,18 @@ def get_fs_and_path(url):
     path = unquote(urlparse(path).path)
     # Create a windows compatible path from url path
     path = os.fspath(pathlib.PurePosixPath(path))
-    fs = fsspec.filesystem(protocol)
+    # Build custom s3fs by grabbing keys from the environment
+    if protocol == S3:
+        fs = fsspec.filesystem(
+            protocol,
+            **{
+                KEY: os.environ.get(AWS_ACCESS_KEY_ID, ""),
+                SECRET: os.environ.get(AWS_SECRET_KEY_ID, ""),
+                CLIENT_KWARGS: {ENDPOINT_URL: os.environ.get(MLFLOW_S3_ENDPOINT_URL, "")},
+            },
+        )
+    else:
+        fs = fsspec.filesystem(protocol)
     return fs, path
 
 
