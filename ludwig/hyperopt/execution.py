@@ -177,7 +177,6 @@ class RayTuneExecutor:
         self.kubernetes_namespace = kubernetes_namespace
         self.time_budget_s = time_budget_s
         self.max_concurrent_trials = max_concurrent_trials
-        self.sync_config = None
         self.sync_client = kwargs.get("sync_client", None)
         # Head node is the node to which all checkpoints are synced if running on a K8s cluster.
         self.head_node_ip = ray.util.get_node_ip_address()
@@ -782,8 +781,6 @@ class RayTuneExecutor:
 
                 self.sync_config = tune.SyncConfig(sync_to_driver=NamespacedKubernetesSyncer(self.kubernetes_namespace))
                 self.sync_client = KubernetesSyncClient(self.kubernetes_namespace)
-
-        logging.info(f"Self Sync Client: {self.sync_client}")
 
         run_experiment_trial_params = tune.with_parameters(run_experiment_trial, local_hyperopt_dict=hyperopt_dict)
         register_trainable(f"trainable_func_f{hash_dict(config).decode('ascii')}", run_experiment_trial_params)

@@ -373,15 +373,11 @@ def hyperopt(
         **kwargs,
     )
 
-    logging.info(f"Output Directory (Before printing hyperopt results): {output_directory}")
-
     if backend.is_coordinator():
         print_hyperopt_results(hyperopt_results)
 
         if not skip_save_hyperopt_statistics:
             results_directory = os.path.join(output_directory, experiment_name)
-
-            logging.info(f"Results Directory: {results_directory}")
 
             makedirs(results_directory, exist_ok=True)
 
