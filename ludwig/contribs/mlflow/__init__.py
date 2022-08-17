@@ -65,7 +65,6 @@ class MlflowCallback(Callback):
         # Experiment may already have been set during hyperopt init, in
         # which case we don't want to create a new experiment / run, as
         # this should be handled by the executor.
-
         if self.experiment_id is None:
             mlflow.end_run()
             self.experiment_id = _get_or_create_experiment_id(experiment_name)
