@@ -35,7 +35,7 @@ from fsspec.core import split_protocol
 
 from ludwig.constants import (
     AWS_ACCESS_KEY_ID,
-    AWS_SECRET_KEY_ID,
+    AWS_SECRET_ACCESS_KEY,
     CLIENT_KWARGS,
     ENDPOINT_URL,
     KEY,
@@ -57,7 +57,7 @@ def get_fs_and_path(url):
             protocol,
             **{
                 KEY: os.environ.get(AWS_ACCESS_KEY_ID, ""),
-                SECRET: os.environ.get(AWS_SECRET_KEY_ID, ""),
+                SECRET: os.environ.get(AWS_SECRET_ACCESS_KEY, ""),
                 CLIENT_KWARGS: {ENDPOINT_URL: os.environ.get(MLFLOW_S3_ENDPOINT_URL, "")},
             },
         )
