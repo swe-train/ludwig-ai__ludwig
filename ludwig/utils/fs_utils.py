@@ -23,7 +23,7 @@ import pathlib
 import shutil
 import tempfile
 import uuid
-from typing import Optional
+from typing import Any, Dict, Optional, Tuple, Union
 from urllib.parse import unquote, urlparse
 
 import certifi
@@ -44,25 +44,50 @@ from ludwig.constants import (
     SECRET,
 )
 
+logger = logging.getLogger(__name__)
 
-def get_fs_and_path(url):
+
+DEFAULT_STORAGE_OPTIONS = {
+    S3: {
+        KEY: os.environ.get(AWS_ACCESS_KEY_ID, None),
+        SECRET: os.environ.get(AWS_SECRET_ACCESS_KEY, None),
+        CLIENT_KWARGS: {
+            ENDPOINT_URL: os.environ.get(MLFLOW_S3_ENDPOINT_URL, None),
+        },
+    }
+}
+
+
+def create_fs(protocol: Union[str, None], storage_options: Optional[Dict[str, Any]]) -> fsspec.filesystem:
+    """Create filesystem object with correct storage options based on the protocol."""
+    if not protocol:
+        # Defaults to LocalFileSystem
+        return fsspec.filesystem(protocol)
+
+    if not storage_options:
+        logger.info(f"Using default storage options for `{protocol}` filesystem.")
+        if protocol == S3:
+            return fsspec.filesystem(protocol, **DEFAULT_STORAGE_OPTIONS[S3])
+
+    assert isinstance(storage_options, dict), "File system storage_options must be of type dict"
+
+    try:
+        return fsspec.filesystem(protocol, **storage_options)
+    except Exception as e:
+        logger.warning(
+            f"Failed to use storage_options for {protocol} filesystem: {e}. Initializing without storage_options."
+        )
+
+    return fsspec.filesystem(protocol)
+
+
+def get_fs_and_path(url, storage_options: Optional[Dict[str, Any]] = None) -> Tuple[fsspec.filesystem, str]:
     protocol, path = split_protocol(url)
     # Parse the url to get only the escaped url path
     path = unquote(urlparse(path).path)
     # Create a windows compatible path from url path
     path = os.fspath(pathlib.PurePosixPath(path))
-    # Build custom s3fs by grabbing keys from the environment
-    if protocol == S3:
-        fs = fsspec.filesystem(
-            protocol,
-            **{
-                KEY: os.environ.get(AWS_ACCESS_KEY_ID, ""),
-                SECRET: os.environ.get(AWS_SECRET_ACCESS_KEY, ""),
-                CLIENT_KWARGS: {ENDPOINT_URL: os.environ.get(MLFLOW_S3_ENDPOINT_URL, "")},
-            },
-        )
-    else:
-        fs = fsspec.filesystem(protocol)
+    fs = create_fs(protocol, storage_options)
     return fs, path
 
 
@@ -89,14 +114,14 @@ def get_bytes_obj_from_path(path: str) -> Optional[bytes]:
         try:
             return get_bytes_obj_from_http_path(path)
         except Exception as e:
-            logging.warning(e)
+            logger.warning(e)
             return None
     else:
         try:
             with open_file(path) as f:
                 return f.read()
         except OSError as e:
-            logging.warning(e)
+            logger.warning(e)
             return None
 
 
@@ -115,10 +140,10 @@ def get_bytes_obj_from_http_path(path: str) -> bytes:
     if resp.status == 404:
         upgraded = upgrade_http(path)
         if upgraded:
-            logging.info(f"reading url {path} failed. upgrading to https and retrying")
+            logger.info(f"Reading url {path} failed. upgrading to https and retrying")
             return get_bytes_obj_from_http_path(upgraded)
         else:
-            raise urllib3.exceptions.HTTPError(f"reading url {path} failed and cannot be upgraded to https")
+            raise urllib3.exceptions.HTTPError(f"Reading url {path} failed and cannot be upgraded to https")
 
     # stream data
     data = b""
@@ -127,8 +152,8 @@ def get_bytes_obj_from_http_path(path: str) -> bytes:
     return data
 
 
-def find_non_existing_dir_by_adding_suffix(directory_name):
-    fs, _ = get_fs_and_path(directory_name)
+def find_non_existing_dir_by_adding_suffix(directory_name, storage_options: Optional[Dict[str, Any]] = None) -> str:
+    fs, _ = get_fs_and_path(directory_name, storage_options=storage_options)
     suffix = 0
     curr_directory_name = directory_name
     while fs.exists(curr_directory_name):
@@ -137,8 +162,8 @@ def find_non_existing_dir_by_adding_suffix(directory_name):
     return curr_directory_name
 
 
-def path_exists(url):
-    fs, path = get_fs_and_path(url)
+def path_exists(url, storage_options: Optional[Dict[str, Any]] = None) -> bool:
+    fs, path = get_fs_and_path(url, storage_options=storage_options)
     return fs.exists(path)
 
 
@@ -174,30 +199,30 @@ def safe_move_file(src, dst):
             raise
 
 
-def rename(src, tgt):
+def rename(src, tgt, storage_options: Optional[Dict[str, Any]] = None):
     protocol, _ = split_protocol(tgt)
     if protocol is not None:
-        fs = fsspec.filesystem(protocol)
+        fs = create_fs(protocol, storage_options)
         fs.mv(src, tgt, recursive=True)
     else:
         safe_move_file(src, tgt)
 
 
-def makedirs(url, exist_ok=False):
-    fs, path = get_fs_and_path(url)
+def makedirs(url, exist_ok=False, storage_options: Optional[Dict[str, Any]] = None):
+    fs, path = get_fs_and_path(url, storage_options=storage_options)
     fs.makedirs(path, exist_ok=exist_ok)
     if not path_exists(url):
         with fsspec.open(url, mode="wb"):
             pass
 
 
-def delete(url, recursive=False):
-    fs, path = get_fs_and_path(url)
+def delete(url, recursive=False, storage_options: Optional[Dict[str, Any]] = None):
+    fs, path = get_fs_and_path(url, storage_options=storage_options)
     return fs.delete(path, recursive=recursive)
 
 
-def checksum(url):
-    fs, path = get_fs_and_path(url)
+def checksum(url, storage_options: Optional[Dict[str, Any]] = None) -> int:
+    fs, path = get_fs_and_path(url, storage_options=storage_options)
     return fs.checksum(path)
 
 
@@ -209,7 +234,7 @@ def to_url(path):
 
 
 @contextlib.contextmanager
-def upload_output_directory(url):
+def upload_output_directory(url, storage_options: Optional[Dict[str, Any]] = None):
     if url is None:
         yield None, None
         return
@@ -219,7 +244,7 @@ def upload_output_directory(url):
         # To avoid extra network load, write all output files locally at runtime,
         # then upload to the remote fs at the end.
         with tempfile.TemporaryDirectory() as tmpdir:
-            fs, remote_path = get_fs_and_path(url)
+            fs, remote_path = get_fs_and_path(url, storage_options=storage_options)
             if path_exists(url):
                 fs.get(url, tmpdir + "/", recursive=True)
 
@@ -239,9 +264,24 @@ def upload_output_directory(url):
 
 @contextlib.contextmanager
 def open_file(url, *args, **kwargs):
-    fs, path = get_fs_and_path(url)
+    fs, path = get_fs_and_path(url, kwargs.get("storage_options", None))
     with fs.open(path, *args, **kwargs) as f:
         yield f
+
+
+# TODO: Needs to change to take in credentials
+@contextlib.contextmanager
+def upload_output_file(url):
+    """Takes a remote URL as input, returns a temp filename, then uploads it when done."""
+    protocol, _ = split_protocol(url)
+    if protocol is not None:
+        fs = fsspec.filesystem(protocol)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            local_fname = os.path.join(tmpdir, "tmpfile")
+            yield local_fname
+            fs.put(local_fname, url, recursive=True)
+    else:
+        yield url
 
 
 @contextlib.contextmanager
@@ -260,20 +300,6 @@ def upload_h5(url):
 
         with h5py.File(local_fname, mode) as f:
             yield f
-
-
-@contextlib.contextmanager
-def upload_output_file(url):
-    """Takes a remote URL as input, returns a temp filename, then uploads it when done."""
-    protocol, _ = split_protocol(url)
-    if protocol is not None:
-        fs = fsspec.filesystem(protocol)
-        with tempfile.TemporaryDirectory() as tmpdir:
-            local_fname = os.path.join(tmpdir, "tmpfile")
-            yield local_fname
-            fs.put(local_fname, url, recursive=True)
-    else:
-        yield url
 
 
 class file_lock(contextlib.AbstractContextManager):
