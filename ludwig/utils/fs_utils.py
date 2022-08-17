@@ -69,8 +69,6 @@ def create_fs(protocol: Union[str, None], storage_options: Optional[Dict[str, An
         if protocol == S3:
             return fsspec.filesystem(protocol, **DEFAULT_STORAGE_OPTIONS[S3])
 
-    assert isinstance(storage_options, dict), "File system storage_options must be of type dict"
-
     try:
         return fsspec.filesystem(protocol, **storage_options)
     except Exception as e:
