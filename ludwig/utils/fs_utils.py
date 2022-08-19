@@ -60,13 +60,20 @@ DEFAULT_STORAGE_OPTIONS = {
 
 def create_fs(protocol: Union[str, None], storage_options: Optional[Dict[str, Any]]) -> fsspec.filesystem:
     """Create filesystem object with correct storage options based on the protocol."""
+
+    print(f"[create_fs] protocol: {protocol}")
+    logger.info(f"logger [create_fs] protocol: {protocol}")
+
     if not protocol:
         # Defaults to LocalFileSystem
         return fsspec.filesystem(protocol)
 
     if not storage_options:
-        logger.info(f"Using default storage options for `{protocol}` filesystem.")
+        logger.info(f"[logger] Using default storage options for `{protocol}` filesystem.")
+        print(f"Using default storage options for `{protocol}` filesystem.")
         if protocol == S3:
+            print(f"Default Storage Options: {DEFAULT_STORAGE_OPTIONS[S3]}")
+            logger.info(f"[logger] Default Storage Options: {DEFAULT_STORAGE_OPTIONS[S3]}")
             return fsspec.filesystem(protocol, **DEFAULT_STORAGE_OPTIONS[S3])
 
     try:
@@ -75,6 +82,7 @@ def create_fs(protocol: Union[str, None], storage_options: Optional[Dict[str, An
         logger.warning(
             f"Failed to use storage_options for {protocol} filesystem: {e}. Initializing without storage_options."
         )
+        print(f"Failed to use storage_options for {protocol} filesystem. Initializing without storage_options.")
 
     return fsspec.filesystem(protocol)
 
@@ -208,8 +216,19 @@ def rename(src, tgt, storage_options: Optional[Dict[str, Any]] = None):
 
 def makedirs(url, exist_ok=False, storage_options: Optional[Dict[str, Any]] = None):
     fs, path = get_fs_and_path(url, storage_options=storage_options)
+    print(f"[makedirs] url: {url}")
+    print(f"[makedirs] fs: {fs}")
+    print(f"[makedirs] path: {path}")
+    logger.info(f"logger [makedirs] url: {url}")
+    logger.info(f"logger [makedirs] fs: {fs}")
+    logger.info(f"logger [makedirs] path: {path}")
     fs.makedirs(path, exist_ok=exist_ok)
+    print("[makedirs] Make directory successful")
     if not path_exists(url):
+        print(f"[makedirs inside path_exists] fs: {fs}")
+        print(f"[makedirs inside path_exists] path: {path}")
+        logger.info(f"logger [makedirs inside path_exists] fs: {fs}")
+        logger.info(f"logger [makedirs inside path_exists] path: {path}")
         with fsspec.open(url, mode="wb"):
             pass
 
@@ -263,6 +282,8 @@ def upload_output_directory(url, storage_options: Optional[Dict[str, Any]] = Non
 @contextlib.contextmanager
 def open_file(url, *args, **kwargs):
     fs, path = get_fs_and_path(url, kwargs.get("storage_options", None))
+    print(f"[open_file]: fs: {fs}")
+    print(f"[open_file]: path: {path}")
     with fs.open(path, *args, **kwargs) as f:
         yield f
 

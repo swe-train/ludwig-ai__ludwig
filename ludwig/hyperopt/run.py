@@ -341,6 +341,12 @@ def hyperopt(
     for callback in callbacks or []:
         callback.on_hyperopt_start(experiment_name)
 
+    print(f"Old Output Directory: {output_directory}")
+
+    output_directory = "s3://dev2-models-ij3e7wznpao"
+
+    print(f"New Output Directory: {output_directory}")
+
     hyperopt_results = hyperopt_executor.execute(
         config,
         dataset=dataset,
@@ -378,6 +384,8 @@ def hyperopt(
 
         if not skip_save_hyperopt_statistics:
             results_directory = os.path.join(output_directory, experiment_name)
+
+            print(f"Results Directory: {results_directory}")
 
             makedirs(results_directory, exist_ok=True)
 

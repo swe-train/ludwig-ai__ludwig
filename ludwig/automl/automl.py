@@ -217,7 +217,34 @@ def train_with_config(
             )
 
     experiment_analysis = hyperopt_results.experiment_analysis
-    return AutoTrainResults(experiment_analysis)
+
+    print("Results DF")
+    print(hyperopt_results.experiment_analysis.results_df)
+
+    print("Results DF Keys")
+    print(hyperopt_results.experiment_analysis.results_df.keys())
+
+    print("\n\n")
+
+    print("Experiment Analysis")
+    print(experiment_analysis)
+
+    print("\n\n")
+
+    final_results = AutoTrainResults(experiment_analysis)
+
+    print("AutoTrainResults Trial Results")
+
+    best_trial = final_results.experiment_analysis.best_trial
+
+    run_name = str(best_trial) + "_" + best_trial.trial_id
+    run_name = run_name.replace("/", "_")
+
+    print(f"Best Trial: {best_trial}")
+    print(f"Run Name: {run_name}")
+    print(f"Path To Best Trial: {final_results.path_to_best_model}")
+
+    return final_results
 
 
 def _model_select(

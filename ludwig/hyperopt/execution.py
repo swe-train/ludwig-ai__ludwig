@@ -782,6 +782,8 @@ class RayTuneExecutor:
 
                 self.sync_config = tune.SyncConfig(sync_to_driver=NamespacedKubernetesSyncer(self.kubernetes_namespace))
                 self.sync_client = KubernetesSyncClient(self.kubernetes_namespace)
+        else:
+            self.sync_config = tune.SyncConfig(syncer=None)
 
         run_experiment_trial_params = tune.with_parameters(run_experiment_trial, local_hyperopt_dict=hyperopt_dict)
         register_trainable(f"trainable_func_f{hash_dict(config).decode('ascii')}", run_experiment_trial_params)
@@ -790,6 +792,8 @@ class RayTuneExecutor:
         # otherwise will start a new experiment:
         # https://docs.ray.io/en/latest/tune/tutorials/tune-stopping.html
         should_resume = "AUTO" if resume is None else resume
+
+        print(f"Local Dir: {output_directory}")
 
         try:
             analysis = tune.run(
