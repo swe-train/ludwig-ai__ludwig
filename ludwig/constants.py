@@ -220,6 +220,9 @@ EXPERIMENT_RUN = "experiment_run"
 TRAIN_TAG = "train"
 EVAL_TAG = "evaluate"
 
+HYPEROPT_LOCAL_DIR = "~/ray_results"
+EXPERIMENT_STATE = "state.json"
+
 KEY = "key"
 SECRET = "secret"
 ENDPOINT_URL = "endpoint_url"
