@@ -97,25 +97,6 @@ def get_fs_and_path(url, storage_options: Optional[Dict[str, Any]] = None) -> Tu
     return fs, path
 
 
-def copy_directory(
-    src_url,
-    dst_url,
-    src_storage_options: Optional[Dict[str, Any]] = None,
-    dst_storage_options: Optional[Dict[str, Any]] = None,
-) -> None:
-    logger.info("[copy_directory] src_url: {src_url}, dst_url: {dst_url}")
-    if path_exists(src_url):
-        with open_file(src_url, storage_options=src_storage_options) as src_fd:
-            with open_file(dst_url, storage_options=dst_storage_options) as dest_fd:
-                while True:
-                    data = src_fd.read(1024)
-                    if not data:
-                        break
-                    dest_fd.write(data)
-    else:
-        raise OSError("Failure when copying directory from {src_url} to {dst_url}. {src_url} does not exist.")
-
-
 def has_remote_protocol(url):
     protocol, _ = split_protocol(url)
     return protocol and protocol != "file"

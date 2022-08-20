@@ -21,6 +21,7 @@ from ray import tune
 from ray.tune import ExperimentAnalysis, register_trainable, Stopper
 from ray.tune.schedulers.resource_changing_scheduler import DistributeResources, ResourceChangingScheduler
 from ray.tune.suggest import BasicVariantGenerator, ConcurrencyLimiter
+from ray.tune.syncer import CloudSyncer
 from ray.tune.utils import wait_for_gpu
 from ray.tune.utils.placement_groups import PlacementGroupFactory
 from ray.util.queue import Queue as RayQueue
@@ -51,7 +52,7 @@ from ludwig.modules.metric_modules import get_best_function
 from ludwig.utils import metric_utils
 from ludwig.utils.data_utils import hash_dict, NumpyEncoder
 from ludwig.utils.defaults import default_random_seed
-from ludwig.utils.fs_utils import copy_directory, has_remote_protocol
+from ludwig.utils.fs_utils import get_fs_and_path, has_remote_protocol
 from ludwig.utils.misc_utils import get_from_registry
 
 _ray_114 = version.parse(ray.__version__) >= version.parse("1.14")
@@ -138,12 +139,20 @@ def checkpoint(progress_tracker, save_path):
 
 
 def sync_function(
-    src: str,
-    target: str,
+    src: str = None,
+    target: str = None,
     src_storage_options: Optional[Dict[str, Any]] = None,
-    dst_storage_options: Optional[Dict[str, Any]] = None,
+    target_storage_options: Optional[Dict[str, Any]] = None,
 ) -> None:
-    copy_directory(src, target, src_storage_options=src_storage_options, dst_storage_options=dst_storage_options)
+    if src is None or target is None:
+        return True 
+    src_fs, src_path = get_fs_and_path(src, storage_options=src_storage_options)
+    dst_fs, dst_path = get_fs_and_path(target, storage_options=target_storage_options)
+    try:
+        src_fs.put(src_path, dst_path, recursive=True, overwrite=True)
+    except Exception as e:
+        return False
+    return True
 
 
 class RayTuneExecutor:
@@ -784,12 +793,7 @@ class RayTuneExecutor:
             from ray.tune.syncer import get_cloud_syncer
 
             run_experiment_trial = tune.durable(run_experiment_trial)
-            self.sync_config = tune.SyncConfig(
-                sync_to_driver=False,
-                upload_dir=output_directory,
-                syncer=get_cloud_syncer(HYPEROPT_LOCAL_DIR, remote_dir=output_directory, sync_function=sync_function),
-            )
-
+            self.sync_config = tune.SyncConfig(sync_to_driver=False, upload_dir=output_directory, syncer=sync_function)
             if _ray_114:
                 self.sync_client = get_node_to_storage_syncer(SyncConfig(upload_dir=output_directory))
             else:
@@ -831,7 +835,6 @@ class RayTuneExecutor:
                 callbacks=tune_callbacks,
                 stop=CallbackStopper(callbacks),
                 verbose=hyperopt_log_verbosity,
-                resume=should_resume,
                 log_to_file=True,
             )
             with tempfile.TemporaryDirectory() as tmpdir:
@@ -842,7 +845,7 @@ class RayTuneExecutor:
                         sync_to_driver=False,
                         upload_dir=output_directory,
                         syncer=get_cloud_syncer(tmpdir, remote_dir=output_directory, sync_function=sync_function),
-                    ),
+                    )
                 )
         except Exception as e:
             # Explicitly raise a RuntimeError if an error is encountered during a Ray trial.
