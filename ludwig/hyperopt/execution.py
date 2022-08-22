@@ -813,7 +813,7 @@ class RayTuneExecutor:
         should_resume = "AUTO" if resume is None else resume
 
         try:
-            tune.run(
+            analysis = tune.run(
                 f"trainable_func_f{hash_dict(config).decode('ascii')}",
                 name=experiment_name,
                 config={
@@ -828,6 +828,7 @@ class RayTuneExecutor:
                 resources_per_trial=resources_per_trial,
                 time_budget_s=self.time_budget_s,
                 sync_config=self.sync_config,
+                local_dir=HYPEROPT_LOCAL_DIR,
                 metric=metric,
                 mode=mode,
                 trial_name_creator=lambda trial: f"trial_{trial.trial_id}",
@@ -837,16 +838,16 @@ class RayTuneExecutor:
                 verbose=hyperopt_log_verbosity,
                 log_to_file=True,
             )
-            with tempfile.TemporaryDirectory() as tmpdir:
-                experiment_checkpoint_path = os.path.join(HYPEROPT_LOCAL_DIR, experiment_name, EXPERIMENT_STATE)
-                analysis = ExperimentAnalysis(
-                    experiment_checkpoint_path=experiment_checkpoint_path,
-                    sync_config=tune.SyncConfig(
-                        sync_to_driver=False,
-                        upload_dir=output_directory,
-                        syncer=get_cloud_syncer(tmpdir, remote_dir=output_directory, sync_function=sync_function),
-                    )
-                )
+            # with tempfile.TemporaryDirectory() as tmpdir:
+            #     experiment_checkpoint_path = os.path.join(HYPEROPT_LOCAL_DIR, experiment_name, EXPERIMENT_STATE)
+            #     analysis = ExperimentAnalysis(
+            #         experiment_checkpoint_path=experiment_checkpoint_path,
+            #         sync_config=tune.SyncConfig(
+            #             sync_to_driver=False,
+            #             upload_dir=output_directory,
+            #             syncer=get_cloud_syncer(tmpdir, remote_dir=output_directory, sync_function=sync_function),
+            #         )
+            #     )
         except Exception as e:
             # Explicitly raise a RuntimeError if an error is encountered during a Ray trial.
             # NOTE: Cascading the exception with "raise _ from e" still results in hanging.
