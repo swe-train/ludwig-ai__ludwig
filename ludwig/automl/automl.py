@@ -217,6 +217,7 @@ def train_with_config(
             )
 
     experiment_analysis = hyperopt_results.experiment_analysis
+
     return AutoTrainResults(experiment_analysis)
 
 

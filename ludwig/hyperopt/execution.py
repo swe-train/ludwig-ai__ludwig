@@ -546,7 +546,9 @@ class RayTuneExecutor:
 
                     remote_checkpoint_dir = self._get_remote_checkpoint_dir()
                     if remote_checkpoint_dir is not None:
+                        print(f"[RayTuneReporter] Remote Checkpoint Dir: {remote_checkpoint_dir}")
                         sync_client = tune_executor.sync_client
+                        print(f"[RayTuneReporter] Sync Client: {sync_client}")
                         sync_client.sync_down(remote_checkpoint_dir, str(trial_dir.absolute()))
                         sync_client.wait_or_retry()
 
@@ -566,7 +568,7 @@ class RayTuneExecutor:
                         report(progress_tracker)
 
         callbacks = hyperopt_dict.get("callbacks") or []
-        hyperopt_dict["callbacks"] = callbacks #+ [RayTuneReportCallback()]
+        hyperopt_dict["callbacks"] = callbacks + [RayTuneReportCallback()]
 
         # set tune resources
         if is_using_ray_backend:
@@ -795,6 +797,7 @@ class RayTuneExecutor:
 
         if has_remote_protocol(output_directory):
             run_experiment_trial = tune.durable(run_experiment_trial)
+            print(f"Output Directory For Sync Config: {output_directory}")
             self.sync_config = tune.SyncConfig(sync_to_driver=False, upload_dir=output_directory, syncer=sync_function)
             if not self.sync_client:
                 if _ray_114:
@@ -844,7 +847,9 @@ class RayTuneExecutor:
                 log_to_file=True,
             )
             analysis = ExperimentAnalysis(
-                experiment_checkpoint_path = os.path.join(HYPEROPT_LOCAL_DIR, experiment_name),
+                experiment_checkpoint_path=os.path.join(HYPEROPT_LOCAL_DIR, experiment_name),
+                default_metric=metric,
+                default_mode=mode,
                 sync_config=tune.SyncConfig(
                     sync_to_driver=False,
                     syncer=tune.SyncConfig(sync_to_driver=False, upload_dir=output_directory, syncer=sync_function)
@@ -903,6 +908,9 @@ class RayTuneExecutor:
         else:
             logger.warning("No trials reported results; check if time budget lower than epoch latency.")
             ordered_trials = []
+
+        print("Saving analysis results")
+        analysis.results_df.to_csv("/workspaces/predibase/analysis_results_df.csv")
 
         return RayTuneResults(ordered_trials=ordered_trials, experiment_analysis=analysis)
 
