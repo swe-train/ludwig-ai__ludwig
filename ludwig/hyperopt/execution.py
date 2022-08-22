@@ -5,7 +5,8 @@ import json
 import logging
 import os
 import shutil
-import tempfile
+
+# import tempfile
 import threading
 import time
 import traceback
@@ -18,7 +19,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 import ray
 from packaging import version
 from ray import tune
-from ray.tune import ExperimentAnalysis, register_trainable, Stopper
+from ray.tune import register_trainable, Stopper
 from ray.tune.schedulers.resource_changing_scheduler import DistributeResources, ResourceChangingScheduler
 from ray.tune.suggest import BasicVariantGenerator, ConcurrencyLimiter
 from ray.tune.utils import wait_for_gpu
@@ -28,11 +29,10 @@ from ray.util.queue import Queue as RayQueue
 from ludwig.api import LudwigModel
 from ludwig.backend import initialize_backend, RAY
 from ludwig.callbacks import Callback
-from ludwig.constants import (
+from ludwig.constants import (  # EXPERIMENT_STATE,
     COLUMN,
     COMBINER,
     DEFAULTS,
-    EXPERIMENT_STATE,
     HYPEROPT_LOCAL_DIR,
     INPUT_FEATURES,
     MAXIMIZE,
@@ -809,7 +809,7 @@ class RayTuneExecutor:
         should_resume = "AUTO" if resume is None else resume
 
         try:
-            tune.run(
+            analysis = tune.run(
                 f"trainable_func_f{hash_dict(config).decode('ascii')}",
                 name=experiment_name,
                 config={
@@ -824,6 +824,7 @@ class RayTuneExecutor:
                 resources_per_trial=resources_per_trial,
                 time_budget_s=self.time_budget_s,
                 sync_config=self.sync_config,
+                local_dir=HYPEROPT_LOCAL_DIR,
                 metric=metric,
                 mode=mode,
                 trial_name_creator=lambda trial: f"trial_{trial.trial_id}",
@@ -834,16 +835,16 @@ class RayTuneExecutor:
                 resume=should_resume,
                 log_to_file=True,
             )
-            with tempfile.TemporaryDirectory() as tmpdir:
-                experiment_checkpoint_path = os.path.join(HYPEROPT_LOCAL_DIR, experiment_name, EXPERIMENT_STATE)
-                analysis = ExperimentAnalysis(
-                    experiment_checkpoint_path=experiment_checkpoint_path,
-                    sync_config=tune.SyncConfig(
-                        sync_to_driver=False,
-                        upload_dir=output_directory,
-                        syncer=get_cloud_syncer(tmpdir, remote_dir=output_directory, sync_function=sync_function),
-                    ),
-                )
+            # with tempfile.TemporaryDirectory() as tmpdir:
+            #     experiment_checkpoint_path = os.path.join(HYPEROPT_LOCAL_DIR, experiment_name, EXPERIMENT_STATE)
+            #     analysis = ExperimentAnalysis(
+            #         experiment_checkpoint_path=experiment_checkpoint_path,
+            #         sync_config=tune.SyncConfig(
+            #             sync_to_driver=False,
+            #             upload_dir=output_directory,
+            #             syncer=get_cloud_syncer(tmpdir, remote_dir=output_directory, sync_function=sync_function),
+            #         ),
+            #     )
         except Exception as e:
             # Explicitly raise a RuntimeError if an error is encountered during a Ray trial.
             # NOTE: Cascading the exception with "raise _ from e" still results in hanging.
