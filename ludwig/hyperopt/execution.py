@@ -21,7 +21,7 @@ from ray import tune
 from ray.tune import ExperimentAnalysis, register_trainable, Stopper
 from ray.tune.schedulers.resource_changing_scheduler import DistributeResources, ResourceChangingScheduler
 from ray.tune.suggest import BasicVariantGenerator, ConcurrencyLimiter
-from ray.tune.syncer import CloudSyncer
+# from ray.tune.syncer import CloudSyncer
 from ray.tune.utils import wait_for_gpu
 from ray.tune.utils.placement_groups import PlacementGroupFactory
 from ray.util.queue import Queue as RayQueue
@@ -33,7 +33,7 @@ from ludwig.constants import (
     COLUMN,
     COMBINER,
     DEFAULTS,
-    EXPERIMENT_STATE,
+    # EXPERIMENT_STATE,
     HYPEROPT_LOCAL_DIR,
     INPUT_FEATURES,
     MAXIMIZE,
@@ -147,10 +147,11 @@ def sync_function(
     if src is None or target is None:
         return True 
     src_fs, src_path = get_fs_and_path(src, storage_options=src_storage_options)
-    dst_fs, dst_path = get_fs_and_path(target, storage_options=target_storage_options)
+    _, dst_path = get_fs_and_path(target, storage_options=target_storage_options)
     try:
         src_fs.put(src_path, dst_path, recursive=True, overwrite=True)
     except Exception as e:
+        logger.warning(f"Failed to sync from {src} to {target}: {e}")
         return False
     return True
 
@@ -349,11 +350,13 @@ class RayTuneExecutor:
                 self.sync_config.upload_dir, *_get_relative_checkpoints_dir_parts(trial_dir)
             )
             return remote_checkpoint_dir
+
         elif self.kubernetes_namespace is not None:
             # Kubernetes sync config. Returns driver node name and path.
             # When running on kubernetes, each trial is rsynced to the node running the main process.
             node_name = self._get_kubernetes_node_address_by_ip()(self.head_node_ip)
             return (node_name, trial_dir)
+
         else:
             logger.warning(
                 "Checkpoint syncing disabled as syncing is only supported to remote cloud storage or on Kubernetes "
@@ -390,12 +393,13 @@ class RayTuneExecutor:
 
     def _get_best_model_path(self, trial_path, analysis):
         remote_checkpoint_dir = self._get_remote_checkpoint_dir(Path(trial_path))
-        if remote_checkpoint_dir is not None:
-            self.sync_client.sync_down(remote_checkpoint_dir, trial_path)
-            self.sync_client.wait_or_retry()
+        # if remote_checkpoint_dir is not None:
+        #     self.sync_client.sync_down(remote_checkpoint_dir, trial_path)
+        #     self.sync_client.wait_or_retry()
         self._remove_partial_checkpoints(trial_path)  # needed by get_best_checkpoint
         mod_path = None
         try:
+            print(f"[_get_best_model_path] Trial Path: {trial_path}")
             mod_path = analysis.get_best_checkpoint(trial_path.rstrip("/"))
         except Exception:
             logger.warning(
@@ -562,7 +566,7 @@ class RayTuneExecutor:
                         report(progress_tracker)
 
         callbacks = hyperopt_dict.get("callbacks") or []
-        hyperopt_dict["callbacks"] = callbacks + [RayTuneReportCallback()]
+        hyperopt_dict["callbacks"] = callbacks #+ [RayTuneReportCallback()]
 
         # set tune resources
         if is_using_ray_backend:
@@ -790,19 +794,20 @@ class RayTuneExecutor:
             )
 
         if has_remote_protocol(output_directory):
-            from ray.tune.syncer import get_cloud_syncer
-
             run_experiment_trial = tune.durable(run_experiment_trial)
             self.sync_config = tune.SyncConfig(sync_to_driver=False, upload_dir=output_directory, syncer=sync_function)
-            if _ray_114:
-                self.sync_client = get_node_to_storage_syncer(SyncConfig(upload_dir=output_directory))
-            else:
-                self.sync_client = get_cloud_sync_client(output_directory)
+            if not self.sync_client:
+                if _ray_114:
+                    self.sync_client = get_node_to_storage_syncer(SyncConfig(upload_dir=output_directory))
+                else:
+                    self.sync_client = get_cloud_sync_client(output_directory)
         elif self.kubernetes_namespace:
             from ray.tune.integration.kubernetes import KubernetesSyncClient, NamespacedKubernetesSyncer
 
             self.sync_config = tune.SyncConfig(sync_to_driver=NamespacedKubernetesSyncer(self.kubernetes_namespace))
             self.sync_client = KubernetesSyncClient(self.kubernetes_namespace)
+
+        print(f"Sync Client: {self.sync_client}")
 
         run_experiment_trial_params = tune.with_parameters(run_experiment_trial, local_hyperopt_dict=hyperopt_dict)
         register_trainable(f"trainable_func_f{hash_dict(config).decode('ascii')}", run_experiment_trial_params)
@@ -813,7 +818,7 @@ class RayTuneExecutor:
         should_resume = "AUTO" if resume is None else resume
 
         try:
-            analysis = tune.run(
+            tune.run(
                 f"trainable_func_f{hash_dict(config).decode('ascii')}",
                 name=experiment_name,
                 config={
@@ -838,16 +843,13 @@ class RayTuneExecutor:
                 verbose=hyperopt_log_verbosity,
                 log_to_file=True,
             )
-            # with tempfile.TemporaryDirectory() as tmpdir:
-            #     experiment_checkpoint_path = os.path.join(HYPEROPT_LOCAL_DIR, experiment_name, EXPERIMENT_STATE)
-            #     analysis = ExperimentAnalysis(
-            #         experiment_checkpoint_path=experiment_checkpoint_path,
-            #         sync_config=tune.SyncConfig(
-            #             sync_to_driver=False,
-            #             upload_dir=output_directory,
-            #             syncer=get_cloud_syncer(tmpdir, remote_dir=output_directory, sync_function=sync_function),
-            #         )
-            #     )
+            analysis = ExperimentAnalysis(
+                experiment_checkpoint_path = os.path.join(HYPEROPT_LOCAL_DIR, experiment_name),
+                sync_config=tune.SyncConfig(
+                    sync_to_driver=False,
+                    syncer=tune.SyncConfig(sync_to_driver=False, upload_dir=output_directory, syncer=sync_function)
+                )
+            )
         except Exception as e:
             # Explicitly raise a RuntimeError if an error is encountered during a Ray trial.
             # NOTE: Cascading the exception with "raise _ from e" still results in hanging.
@@ -875,6 +877,7 @@ class RayTuneExecutor:
                     if validation_set is not None and validation_set.size > 0:
                         trial_path = trial["trial_dir"]
                         best_model_path = self._get_best_model_path(trial_path, analysis)
+                        print(f"[Hyperopt Execution] Remote Checkpoint Dir: {best_model_path}")
                         if best_model_path is not None:
                             self._evaluate_best_model(
                                 trial,
@@ -892,13 +895,13 @@ class RayTuneExecutor:
                                 debug,
                             )
                         else:
-                            logger.warning("Skipping evaluation as no model checkpoints were available")
+                            logger.warning("Skipping evaluation as no model checkpoints were available.")
                     else:
-                        logger.warning("Skipping evaluation as no validation set was provided")
+                        logger.warning("Skipping evaluation as no validation set was provided.")
 
             ordered_trials = [TrialResults.from_dict(load_json_values(kwargs)) for kwargs in temp_ordered_trials]
         else:
-            logger.warning("No trials reported results; check if time budget lower than epoch latency")
+            logger.warning("No trials reported results; check if time budget lower than epoch latency.")
             ordered_trials = []
 
         return RayTuneResults(ordered_trials=ordered_trials, experiment_analysis=analysis)
