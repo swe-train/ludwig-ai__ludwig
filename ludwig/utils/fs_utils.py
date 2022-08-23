@@ -46,7 +46,7 @@ from ludwig.constants import (
 
 logger = logging.getLogger(__name__)
 
-
+# Todo: Rename MLFLOW_S3_ENDPOINT_URL to something else
 DEFAULT_STORAGE_OPTIONS = {
     S3: {
         KEY: os.environ.get(AWS_ACCESS_KEY_ID, None),
@@ -222,15 +222,10 @@ def makedirs(url, exist_ok=False, storage_options: Optional[Dict[str, Any]] = No
     logger.info(f"logger [makedirs] url: {url}")
     logger.info(f"logger [makedirs] fs: {fs}")
     logger.info(f"logger [makedirs] path: {path}")
-    fs.makedirs(path, exist_ok=exist_ok)
-    print("[makedirs] Make directory successful")
-    if not path_exists(url):
-        print(f"[makedirs inside path_exists] fs: {fs}")
-        print(f"[makedirs inside path_exists] path: {path}")
-        logger.info(f"logger [makedirs inside path_exists] fs: {fs}")
-        logger.info(f"logger [makedirs inside path_exists] path: {path}")
-        with fsspec.open(url, mode="wb"):
-            pass
+    try:
+        fs.makedirs(path, exist_ok=exist_ok)
+    except Exception as e:
+        logger.warning(f"Failed to make a directory at url: {e}")
 
 
 def delete(url, recursive=False, storage_options: Optional[Dict[str, Any]] = None):
@@ -288,13 +283,12 @@ def open_file(url, *args, **kwargs):
         yield f
 
 
-# TODO: Needs to change to take in credentials
 @contextlib.contextmanager
-def upload_output_file(url):
+def upload_output_file(url, storage_options: Optional[Dict[str, Any]] = None):
     """Takes a remote URL as input, returns a temp filename, then uploads it when done."""
     protocol, _ = split_protocol(url)
     if protocol is not None:
-        fs = fsspec.filesystem(protocol)
+        fs = create_fs(protocol, storage_options=storage_options)
         with tempfile.TemporaryDirectory() as tmpdir:
             local_fname = os.path.join(tmpdir, "tmpfile")
             yield local_fname
