@@ -211,7 +211,7 @@ class RayTuneExecutor:
         self.max_concurrent_trials = max_concurrent_trials
         self.sync_config = None
         self.sync_client = None  # kwargs.get("sync_client", None)
-        self.sync_function = kwargs.get("sync_function", None)
+        self.sync_function_template = kwargs.get("sync_function_template", None)
         # Head node is the node to which all checkpoints are synced if running on a K8s cluster.
         self.head_node_ip = ray.util.get_node_ip_address()
 
@@ -803,10 +803,11 @@ class RayTuneExecutor:
 
         if has_remote_protocol(output_directory):
             print(f"output dir for sync config: {output_directory}")
-            print(f"self.sync_function: `{self.sync_function}`")
-            if self.sync_function:
+            print(f"self.sync_function_template: `{self.sync_function_template}`")
+            # Build Sync Config
+            if self.sync_function_template:
                 self.sync_config = tune.SyncConfig(
-                    sync_to_driver=False, upload_dir=output_directory, syncer=self.sync_function
+                    sync_to_driver=False, upload_dir=output_directory, syncer=self.sync_function_template
                 )
             else:
                 self.sync_config = tune.SyncConfig(
@@ -814,11 +815,13 @@ class RayTuneExecutor:
                 )  # , syncer=sync_function)
 
             # if not self.sync_client:
+            # Build Sync Client
             if _ray_114:
                 self.sync_client = get_node_to_storage_syncer(SyncConfig(upload_dir=output_directory))
-            elif self.sync_function:
+            elif self.sync_function_template:
                 self.sync_client = CommandBasedClient(
-                    sync_up_template=self.sync_function, sync_down_template=self.sync_function
+                    sync_up_template=self.sync_function_template,
+                    sync_down_template=self.sync_function_template,
                 )
             else:
                 self.sync_client = get_cloud_sync_client(output_directory)
@@ -857,6 +860,7 @@ class RayTuneExecutor:
                 time_budget_s=self.time_budget_s,
                 sync_config=self.sync_config,
                 # local_dir=HYPEROPT_LOCAL_DIR,
+                local_dir=None,
                 metric=metric,
                 mode=mode,
                 trial_name_creator=lambda trial: f"trial_{trial.trial_id}",
