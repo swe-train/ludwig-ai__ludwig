@@ -46,7 +46,9 @@ from ludwig.constants import (
 
 logger = logging.getLogger(__name__)
 
-# Todo: Rename MLFLOW_S3_ENDPOINT_URL to something else
+
+# TODO: Rename MLFLOW_S3_ENDPOINT_URL to something else
+# Guidelines for storage options structure: https://s3fs.readthedocs.io/en/latest/#s3-compatible-storage
 DEFAULT_STORAGE_OPTIONS = {
     S3: {
         KEY: os.environ.get(AWS_ACCESS_KEY_ID, None),
@@ -60,20 +62,13 @@ DEFAULT_STORAGE_OPTIONS = {
 
 def create_fs(protocol: Union[str, None], storage_options: Optional[Dict[str, Any]]) -> fsspec.filesystem:
     """Create filesystem object with correct storage options based on the protocol."""
-
-    print(f"[create_fs] protocol: {protocol}")
-    logger.info(f"logger [create_fs] protocol: {protocol}")
-
     if not protocol:
         # Defaults to LocalFileSystem
         return fsspec.filesystem(protocol)
 
     if not storage_options:
-        logger.info(f"[logger] Using default storage options for `{protocol}` filesystem.")
-        print(f"Using default storage options for `{protocol}` filesystem.")
+        logger.info(f"Using default storage options for `{protocol}` filesystem.")
         if protocol == S3:
-            print(f"Default Storage Options: {DEFAULT_STORAGE_OPTIONS[S3]}")
-            logger.info(f"[logger] Default Storage Options: {DEFAULT_STORAGE_OPTIONS[S3]}")
             return fsspec.filesystem(protocol, **DEFAULT_STORAGE_OPTIONS[S3])
 
     try:
@@ -82,7 +77,6 @@ def create_fs(protocol: Union[str, None], storage_options: Optional[Dict[str, An
         logger.warning(
             f"Failed to use storage_options for {protocol} filesystem: {e}. Initializing without storage_options."
         )
-        print(f"Failed to use storage_options for {protocol} filesystem. Initializing without storage_options.")
 
     return fsspec.filesystem(protocol)
 
@@ -216,16 +210,10 @@ def rename(src, tgt, storage_options: Optional[Dict[str, Any]] = None):
 
 def makedirs(url, exist_ok=False, storage_options: Optional[Dict[str, Any]] = None):
     fs, path = get_fs_and_path(url, storage_options=storage_options)
-    print(f"[makedirs] url: {url}")
-    print(f"[makedirs] fs: {fs}")
-    print(f"[makedirs] path: {path}")
-    logger.info(f"logger [makedirs] url: {url}")
-    logger.info(f"logger [makedirs] fs: {fs}")
-    logger.info(f"logger [makedirs] path: {path}")
     try:
         fs.makedirs(path, exist_ok=exist_ok)
     except Exception as e:
-        logger.warning(f"Failed to make a directory at url: {e}")
+        logger.warning(f"Failed to make a directory at url `{url}`: {e}")
 
 
 def delete(url, recursive=False, storage_options: Optional[Dict[str, Any]] = None):
@@ -277,24 +265,8 @@ def upload_output_directory(url, storage_options: Optional[Dict[str, Any]] = Non
 @contextlib.contextmanager
 def open_file(url, *args, **kwargs):
     fs, path = get_fs_and_path(url, kwargs.get("storage_options", None))
-    print(f"[open_file]: fs: {fs}")
-    print(f"[open_file]: path: {path}")
     with fs.open(path, *args, **kwargs) as f:
         yield f
-
-
-@contextlib.contextmanager
-def upload_output_file(url, storage_options: Optional[Dict[str, Any]] = None):
-    """Takes a remote URL as input, returns a temp filename, then uploads it when done."""
-    protocol, _ = split_protocol(url)
-    if protocol is not None:
-        fs = create_fs(protocol, storage_options=storage_options)
-        with tempfile.TemporaryDirectory() as tmpdir:
-            local_fname = os.path.join(tmpdir, "tmpfile")
-            yield local_fname
-            fs.put(local_fname, url, recursive=True)
-    else:
-        yield url
 
 
 @contextlib.contextmanager
@@ -313,6 +285,20 @@ def upload_h5(url):
 
         with h5py.File(local_fname, mode) as f:
             yield f
+
+
+@contextlib.contextmanager
+def upload_output_file(url, storage_options: Optional[Dict[str, Any]] = None):
+    """Takes a remote URL as input, returns a temp filename, then uploads it when done."""
+    protocol, _ = split_protocol(url)
+    if protocol is not None:
+        fs = create_fs(protocol, storage_options=storage_options)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            local_fname = os.path.join(tmpdir, "tmpfile")
+            yield local_fname
+            fs.put(local_fname, url, recursive=True)
+    else:
+        yield url
 
 
 class file_lock(contextlib.AbstractContextManager):

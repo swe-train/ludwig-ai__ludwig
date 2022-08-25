@@ -288,10 +288,18 @@ def hyperopt(
                 )
             )
 
-    sync_client = kwargs.get("sync_client", None)
+    # sync_client = kwargs.get("sync_client", None)
+    sync_function = kwargs.get("sync_function", None)
 
     hyperopt_executor = get_build_hyperopt_executor(executor[TYPE])(
-        parameters, output_feature, metric, goal, split, search_alg=search_alg, sync_client=sync_client, **executor
+        parameters,
+        output_feature,
+        metric,
+        goal,
+        split,
+        search_alg=search_alg,
+        sync_function=sync_function,
+        **executor,  # sync_client=sync_client, **executor
     )
 
     # Explicitly default to a local backend to avoid picking up Ray or Horovod

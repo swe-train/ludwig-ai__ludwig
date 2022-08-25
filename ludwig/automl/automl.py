@@ -217,13 +217,6 @@ def train_with_config(
             )
 
     experiment_analysis = hyperopt_results.experiment_analysis
-
-    print("Results DF")
-    print(hyperopt_results.experiment_analysis.results_df)
-
-    print("Results DF Keys")
-    print(hyperopt_results.experiment_analysis.results_df.keys())
-
     return AutoTrainResults(experiment_analysis)
 
 
