@@ -20,6 +20,7 @@ from ray import tune
 from ray.tune import register_trainable, Stopper
 from ray.tune.schedulers.resource_changing_scheduler import DistributeResources, ResourceChangingScheduler
 from ray.tune.suggest import BasicVariantGenerator, ConcurrencyLimiter
+from ray.tune.sync_client import CommandBasedClient
 from ray.tune.utils import wait_for_gpu
 from ray.tune.utils.placement_groups import PlacementGroupFactory
 from ray.util.queue import Queue as RayQueue
@@ -801,21 +802,26 @@ class RayTuneExecutor:
             )
 
         if has_remote_protocol(output_directory):
-            print(f"Output Dir For Sync Config: {output_directory}")
-            # Check if custom sync_function has been passed in
+            print(f"output dir for sync config: {output_directory}")
+            print(f"self.sync_function: `{self.sync_function}`")
             if self.sync_function:
                 self.sync_config = tune.SyncConfig(
-                    sync_to_driver=True, upload_dir=output_directory, syncer=self.sync_function
+                    sync_to_driver=False, upload_dir=output_directory, syncer=self.sync_function
                 )
             else:
-                # syncer=sync_function
-                self.sync_config = tune.SyncConfig(sync_to_driver=True, upload_dir=output_directory)
+                self.sync_config = tune.SyncConfig(
+                    sync_to_driver=False, upload_dir=output_directory
+                )  # , syncer=sync_function)
 
-            if not self.sync_client:
-                if _ray_114:
-                    self.sync_client = get_node_to_storage_syncer(SyncConfig(upload_dir=output_directory))
-                else:
-                    self.sync_client = get_cloud_sync_client(output_directory)
+            # if not self.sync_client:
+            if _ray_114:
+                self.sync_client = get_node_to_storage_syncer(SyncConfig(upload_dir=output_directory))
+            elif self.sync_function:
+                self.sync_client = CommandBasedClient(
+                    sync_up_template=self.sync_function, sync_down_template=self.sync_function
+                )
+            else:
+                self.sync_client = get_cloud_sync_client(output_directory)
         elif self.kubernetes_namespace:
             from ray.tune.integration.kubernetes import KubernetesSyncClient, NamespacedKubernetesSyncer
 
