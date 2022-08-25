@@ -553,9 +553,7 @@ class RayTuneExecutor:
 
                     remote_checkpoint_dir = self._get_remote_checkpoint_dir()
                     if remote_checkpoint_dir is not None:
-                        print(f"[RayTuneReporter] Remote Checkpoint Dir: {remote_checkpoint_dir}")
                         sync_client = tune_executor.sync_client
-                        print(f"[RayTuneReporter] Sync Client: {sync_client}")
                         sync_client.sync_down(remote_checkpoint_dir, str(trial_dir.absolute()))
                         sync_client.wait_or_retry()
 
