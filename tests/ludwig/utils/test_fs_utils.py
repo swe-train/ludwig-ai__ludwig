@@ -43,11 +43,10 @@ def test_get_fs_and_path_unicode():
 
 
 @pytest.mark.filesystem
-def test_get_fs_and_path_with_local_directory():
-    with tempfile.TemporaryDirectory() as tmpdir:
-        fs, path = get_fs_and_path(tmpdir)
-        assert isinstance(fs, fsspec.implementations.local.LocalFileSystem)
-        assert path == tmpdir
+def test_get_fs_and_path_with_local_directory(tmpdir):
+    fs, path = get_fs_and_path(tmpdir)
+    assert isinstance(fs, fsspec.implementations.local.LocalFileSystem)
+    assert path == tmpdir
 
 
 @pytest.mark.filesystem
