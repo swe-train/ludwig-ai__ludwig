@@ -33,31 +33,10 @@ import urllib3
 from filelock import FileLock
 from fsspec.core import split_protocol
 
-from ludwig.constants import (
-    AWS_ACCESS_KEY_ID,
-    AWS_SECRET_ACCESS_KEY,
-    CLIENT_KWARGS,
-    ENDPOINT_URL,
-    KEY,
-    MLFLOW_S3_ENDPOINT_URL,
-    S3,
-    SECRET,
-)
+from ludwig.constants import CLIENT_KWARGS, KEY, S3, SECRET
+from ludwig.utils.remote_storage_options import S3RemoteStorageOptions
 
 logger = logging.getLogger(__name__)
-
-
-# TODO: Rename MLFLOW_S3_ENDPOINT_URL to something else
-# Guidelines for storage options structure: https://s3fs.readthedocs.io/en/latest/#s3-compatible-storage
-DEFAULT_STORAGE_OPTIONS = {
-    S3: {
-        KEY: os.environ.get(AWS_ACCESS_KEY_ID, None),
-        SECRET: os.environ.get(AWS_SECRET_ACCESS_KEY, None),
-        CLIENT_KWARGS: {
-            ENDPOINT_URL: os.environ.get(MLFLOW_S3_ENDPOINT_URL, None),
-        },
-    }
-}
 
 
 def create_fs(protocol: Union[str, None], storage_options: Optional[Dict[str, Any]]) -> fsspec.filesystem:
@@ -69,7 +48,9 @@ def create_fs(protocol: Union[str, None], storage_options: Optional[Dict[str, An
     if not storage_options:
         logger.info(f"Using default storage options for `{protocol}` filesystem.")
         if protocol == S3:
-            return fsspec.filesystem(protocol, **DEFAULT_STORAGE_OPTIONS[S3])
+            s3 = S3RemoteStorageOptions()
+            storage_options = {KEY: s3.get_key(), SECRET: s3.get_secret(), CLIENT_KWARGS: s3.get_client_kwargs()}
+            return fsspec.filesystem(protocol, **storage_options)
 
     try:
         return fsspec.filesystem(protocol, **storage_options)
