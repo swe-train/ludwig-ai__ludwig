@@ -180,7 +180,6 @@ class RayTuneExecutor:
         self.time_budget_s = time_budget_s
         self.max_concurrent_trials = max_concurrent_trials
         self.sync_config = None
-        self.sync_client = None  # kwargs.get("sync_client", None)
         self.sync_function_template = kwargs.get("sync_function_template", None)
         # Head node is the node to which all checkpoints are synced if running on a K8s cluster.
         self.head_node_ip = ray.util.get_node_ip_address()
@@ -464,7 +463,7 @@ class RayTuneExecutor:
 
         hyperopt_dict["config"] = modified_config
         hyperopt_dict["experiment_name"] = f'{hyperopt_dict["experiment_name"]}_{trial_id}'
-        hyperopt_dict["output_directory"] = str(trial_dir)  # os.path.join(checkpoint_dir, str(trial_id))
+        hyperopt_dict["output_directory"] = str(trial_dir)
 
         tune_executor = self
         if is_using_ray_backend:
@@ -772,19 +771,14 @@ class RayTuneExecutor:
             )
 
         if has_remote_protocol(output_directory):
-            print(f"output dir for sync config: {output_directory}")
-            print(f"self.sync_function_template: `{self.sync_function_template}`")
             # Build Sync Config
             if self.sync_function_template:
                 self.sync_config = tune.SyncConfig(
                     sync_to_driver=False, upload_dir=output_directory, syncer=self.sync_function_template
                 )
             else:
-                self.sync_config = tune.SyncConfig(
-                    sync_to_driver=False, upload_dir=output_directory
-                )  # , syncer=sync_function)
+                self.sync_config = tune.SyncConfig(sync_to_driver=False, upload_dir=output_directory)
 
-            # if not self.sync_client:
             # Build Sync Client
             if _ray_114:
                 self.sync_client = get_node_to_storage_syncer(SyncConfig(upload_dir=output_directory))
@@ -801,11 +795,7 @@ class RayTuneExecutor:
             self.sync_config = tune.SyncConfig(sync_to_driver=NamespacedKubernetesSyncer(self.kubernetes_namespace))
             self.sync_client = KubernetesSyncClient(self.kubernetes_namespace)
 
-        run_experiment_trial_params = tune.with_parameters(
-            run_experiment_trial,
-            local_hyperopt_dict=hyperopt_dict,
-            # checkpoint_dir=os.path.join(output_directory, experiment_name)
-        )
+        run_experiment_trial_params = tune.with_parameters(run_experiment_trial, local_hyperopt_dict=hyperopt_dict)
         register_trainable(f"trainable_func_f{hash_dict(config).decode('ascii')}", run_experiment_trial_params)
 
         # Note that resume="AUTO" will attempt to resume the experiment if possible, and
@@ -840,15 +830,6 @@ class RayTuneExecutor:
                 resume=should_resume,
                 log_to_file=True,
             )
-        # analysis = ExperimentAnalysis(
-        #     experiment_checkpoint_path=os.path.join(HYPEROPT_LOCAL_DIR, experiment_name), # use output_dir instead
-        #     default_metric=metric,
-        #     default_mode=mode,
-        #     sync_config=tune.SyncConfig(
-        #         sync_to_driver=False,
-        #         syncer=tune.SyncConfig(sync_to_driver=False, upload_dir=output_directory, syncer=sync_function)
-        #     )
-        # )
         except Exception as e:
             # Explicitly raise a RuntimeError if an error is encountered during a Ray trial.
             # NOTE: Cascading the exception with "raise _ from e" still results in hanging.
@@ -876,7 +857,6 @@ class RayTuneExecutor:
                     if validation_set is not None and validation_set.size > 0:
                         trial_path = trial["trial_dir"]
                         best_model_path = self._get_best_model_path(trial_path, analysis)
-                        print(f"[Hyperopt Execution] best_model_path (for trial): {best_model_path}")
                         if best_model_path is not None:
                             self._evaluate_best_model(
                                 trial,

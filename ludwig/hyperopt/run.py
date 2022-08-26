@@ -288,7 +288,6 @@ def hyperopt(
                 )
             )
 
-    # sync_client = kwargs.get("sync_client", None)
     sync_function_template = kwargs.get("sync_function_template", None)
 
     hyperopt_executor = get_build_hyperopt_executor(executor[TYPE])(
@@ -299,7 +298,7 @@ def hyperopt(
         split,
         search_alg=search_alg,
         sync_function_template=sync_function_template,
-        **executor,  # sync_client=sync_client, **executor
+        **executor,
     )
 
     # Explicitly default to a local backend to avoid picking up Ray or Horovod
@@ -381,20 +380,11 @@ def hyperopt(
         **kwargs,
     )
 
-    print("Hyperopt Results")
-    print(hyperopt_results.experiment_analysis.results_df)
-    print(hyperopt_results.experiment_analysis.results_df.keys())
-    print(hyperopt_results.experiment_analysis.results_df["trial_dir"])
-    print(hyperopt_results.experiment_analysis.results_df[["pid", "hostname", "node_ip"]])
-
     if backend.is_coordinator():
         print_hyperopt_results(hyperopt_results)
 
         if not skip_save_hyperopt_statistics:
             results_directory = os.path.join(output_directory, experiment_name)
-
-            print(f"Output Directory: {output_directory}")
-            print(f"Results Directory: {results_directory}")
 
             makedirs(results_directory, exist_ok=True)
 
