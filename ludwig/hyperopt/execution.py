@@ -371,10 +371,11 @@ class RayTuneExecutor:
                 os.remove(marker_path)
 
     def _get_best_model_path(self, trial_path, analysis):
-        # remote_checkpoint_dir = self._get_remote_checkpoint_dir(Path(trial_path))
-        # if remote_checkpoint_dir is not None:
-        #     self.sync_client.sync_down(remote_checkpoint_dir, trial_path)
-        #     self.sync_client.wait_or_retry()
+        if self.kubernetes_namespace:
+            remote_checkpoint_dir = self._get_remote_checkpoint_dir(Path(trial_path))
+            if remote_checkpoint_dir is not None:
+                self.sync_client.sync_down(remote_checkpoint_dir, trial_path)
+                self.sync_client.wait_or_retry()
         self._remove_partial_checkpoints(trial_path)  # needed by get_best_checkpoint
         mod_path = None
         try:
