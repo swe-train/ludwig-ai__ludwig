@@ -15,42 +15,46 @@
 # ==============================================================================
 
 import os
-from abc import ABCMeta, abstractmethod
+from abc import ABCMeta
 from typing import Any, Dict
 
-from ludwig.constants import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, ENDPOINT_URL, MLFLOW_S3_ENDPOINT_URL
+from ludwig.constants import (
+    AWS_ACCESS_KEY_ID,
+    AWS_SECRET_ACCESS_KEY,
+    CLIENT_KWARGS,
+    ENDPOINT_URL,
+    KEY,
+    MLFLOW_S3_ENDPOINT_URL,
+    SECRET,
+)
 
 
-class RemoteStorageOptions(metaclass=ABCMeta):
+class BaseRemoteStorageOptions(metaclass=ABCMeta):
     """Base Class for remote storage options to be used by fsspec Guidelines for storage options structure:
 
     https://s3fs.readthedocs.io/en/latest/#s3-compatible-storage.
     """
 
-    @abstractmethod
+    def __init__(self, key: str, secret: str, endpoint_url: str):
+        self.key = os.environ.get(key, None)
+        self.secret = os.environ.get(secret, None)
+        self.endpoint_url = os.environ.get(endpoint_url, None)
+
     def get_key(self) -> str:
-        raise NotImplementedError
+        return self.key
 
-    @abstractmethod
     def get_secret(self) -> str:
-        raise NotImplementedError
+        return self.secret
 
-    @abstractmethod
     def get_client_kwargs(self) -> Dict[str, Any]:
-        raise NotImplementedError
+        return {ENDPOINT_URL: self.endpoint_url}
+
+    def get_storage_options(self):
+        return {KEY: self.get_key(), SECRET: self.get_secret(), CLIENT_KWARGS: self.get_client_kwargs()}
 
 
-class S3RemoteStorageOptions(RemoteStorageOptions):
+class S3RemoteStorageOptions(BaseRemoteStorageOptions):
     """Get credentials from environment variables."""
 
-    def get_key(self):
-        return os.environ.get(AWS_ACCESS_KEY_ID, None)
-
-    def get_secret(self) -> str:
-        return os.environ.get(AWS_SECRET_ACCESS_KEY, None)
-
-    def get_client_kwargs(self) -> Dict[str, Any]:
-        # TODO: Rename MLFLOW_S3_ENDPOINT_URL to something else
-        return {
-            ENDPOINT_URL: os.environ.get(MLFLOW_S3_ENDPOINT_URL, None),
-        }
+    def __init__(self):
+        super().__init__(AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, MLFLOW_S3_ENDPOINT_URL)

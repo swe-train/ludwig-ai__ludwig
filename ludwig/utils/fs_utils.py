@@ -33,7 +33,7 @@ import urllib3
 from filelock import FileLock
 from fsspec.core import split_protocol
 
-from ludwig.constants import CLIENT_KWARGS, KEY, S3, SECRET
+from ludwig.constants import S3
 from ludwig.utils.remote_storage_options import S3RemoteStorageOptions
 
 logger = logging.getLogger(__name__)
@@ -49,8 +49,7 @@ def create_fs(protocol: Union[str, None], storage_options: Optional[Dict[str, An
         logger.info(f"Using default storage options for `{protocol}` filesystem.")
         if protocol == S3:
             s3 = S3RemoteStorageOptions()
-            storage_options = {KEY: s3.get_key(), SECRET: s3.get_secret(), CLIENT_KWARGS: s3.get_client_kwargs()}
-            return fsspec.filesystem(protocol, **storage_options)
+            return fsspec.filesystem(protocol, **s3.get_storage_options())
 
     try:
         return fsspec.filesystem(protocol, **storage_options)
