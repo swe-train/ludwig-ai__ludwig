@@ -48,8 +48,7 @@ def create_fs(protocol: Union[str, None], storage_options: Optional[Dict[str, An
     if not storage_options:
         logger.info(f"Using default storage options for `{protocol}` filesystem.")
         if protocol == S3:
-            s3 = S3RemoteStorageOptions()
-            return fsspec.filesystem(protocol, **s3.get_storage_options())
+            storage_options = S3RemoteStorageOptions().get_storage_options()
 
     try:
         return fsspec.filesystem(protocol, **storage_options)
@@ -57,8 +56,7 @@ def create_fs(protocol: Union[str, None], storage_options: Optional[Dict[str, An
         logger.warning(
             f"Failed to use storage_options for {protocol} filesystem: {e}. Initializing without storage_options."
         )
-
-    return fsspec.filesystem(protocol)
+        return fsspec.filesystem(protocol)
 
 
 def get_fs_and_path(url, storage_options: Optional[Dict[str, Any]] = None) -> Tuple[fsspec.filesystem, str]:

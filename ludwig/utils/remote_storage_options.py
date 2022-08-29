@@ -24,13 +24,13 @@ from ludwig.constants import (
     CLIENT_KWARGS,
     ENDPOINT_URL,
     KEY,
-    MLFLOW_S3_ENDPOINT_URL,
+    S3_ENDPOINT_URL,
     SECRET,
 )
 
 
 class BaseRemoteStorageOptions(metaclass=ABCMeta):
-    """Base Class for remote storage options to be used by fsspec Guidelines for storage options structure:
+    """Base Class for remote storage options to be used by fsspec guidelines for storage options structure:
 
     https://s3fs.readthedocs.io/en/latest/#s3-compatible-storage.
     """
@@ -54,7 +54,10 @@ class BaseRemoteStorageOptions(metaclass=ABCMeta):
 
 
 class S3RemoteStorageOptions(BaseRemoteStorageOptions):
-    """Get credentials from environment variables."""
+    """Get credentials from environment variables.
+
+    May not require this class once https://github.com/aws/aws-sdk/issues/229 is done.
+    """
 
     def __init__(self):
-        super().__init__(AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, MLFLOW_S3_ENDPOINT_URL)
+        super().__init__(AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, S3_ENDPOINT_URL)
