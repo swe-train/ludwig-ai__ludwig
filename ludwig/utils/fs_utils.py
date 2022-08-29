@@ -190,10 +190,12 @@ def rename(src, tgt, storage_options: Optional[Dict[str, Any]] = None):
 
 def makedirs(url, exist_ok=False, storage_options: Optional[Dict[str, Any]] = None):
     fs, path = get_fs_and_path(url, storage_options=storage_options)
-    try:
-        fs.makedirs(path, exist_ok=exist_ok)
-    except Exception as e:
-        logger.warning(f"Failed to make a directory at url `{url}`: {e}")
+    fs.makedirs(path, exist_ok=exist_ok)
+    # Makedirs can be a no-op depending on the client implementation
+    if not path_exists(url, storage_options=storage_options):
+        # Create file with the directory name
+        with fsspec.open(url, mode="wb"):
+            pass
 
 
 def delete(url, recursive=False, storage_options: Optional[Dict[str, Any]] = None):
