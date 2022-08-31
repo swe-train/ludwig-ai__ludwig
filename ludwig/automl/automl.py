@@ -11,7 +11,7 @@ import argparse
 import copy
 import os
 import warnings
-from typing import Dict, List, Union
+from typing import Dict, List, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -20,6 +20,7 @@ import yaml
 from ludwig.api import LudwigModel
 from ludwig.automl.auto_tune_config import memory_tune_config
 from ludwig.automl.base_config import _create_default_config, _get_reference_configs, DatasetInfo, get_dataset_info
+from ludwig.backend.base import Backend
 from ludwig.constants import (
     AUTOML_DEFAULT_IMAGE_ENCODER,
     AUTOML_DEFAULT_TABULAR_MODEL,
@@ -179,6 +180,7 @@ def create_auto_config(
 def train_with_config(
     dataset: Union[str, pd.DataFrame, dd.core.DataFrame],
     config: dict,
+    backend: Optional[Backend] = None,
     output_directory: str = OUTPUT_DIR,
     random_seed: int = default_random_seed,
     **kwargs,
@@ -203,7 +205,13 @@ def train_with_config(
     _ray_init()
     model_type = get_model_type(config)
     hyperopt_results = _train(
-        config, dataset, output_directory=output_directory, model_name=model_type, random_seed=random_seed, **kwargs
+        config,
+        dataset,
+        backend=backend,
+        output_directory=output_directory,
+        model_name=model_type,
+        random_seed=random_seed,
+        **kwargs,
     )
     # catch edge case where metric_score is nan
     # TODO (ASN): Decide how we want to proceed if at least one trial has
@@ -299,10 +307,12 @@ def _train(
     output_directory: str,
     model_name: str,
     random_seed: int,
+    backend: Optional[Backend] = None,
     **kwargs,
 ):
     hyperopt_results = hyperopt(
         config,
+        backend=backend,
         dataset=dataset,
         output_directory=output_directory,
         model_name=model_name,

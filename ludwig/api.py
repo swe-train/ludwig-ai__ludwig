@@ -364,7 +364,7 @@ class LudwigModel:
 
         if model_resume_path is None:
             if self.backend.is_coordinator():
-                output_directory = get_output_directory(output_directory, experiment_name, model_name)
+                output_directory = get_output_directory(output_directory, experiment_name, model_name, self.backend)
             else:
                 output_directory = None
 

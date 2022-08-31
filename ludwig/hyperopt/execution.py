@@ -860,6 +860,7 @@ class RayTuneExecutor:
                     if validation_set is not None and validation_set.size > 0:
                         trial_path = trial["trial_dir"]
                         best_model_path = self._get_best_model_path(trial_path, analysis)
+                        print(f"Best model path: {best_model_path}")
                         if best_model_path is not None:
                             self._evaluate_best_model(
                                 trial,

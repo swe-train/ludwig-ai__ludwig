@@ -40,23 +40,24 @@ logger = logging.getLogger(__name__)
 
 
 def create_fs(protocol: Union[str, None], storage_options: Optional[Dict[str, Any]]) -> fsspec.filesystem:
-    """Create filesystem object with correct storage options based on the protocol."""
-    if not protocol:
-        # Defaults to LocalFileSystem
-        return fsspec.filesystem(protocol)
+    # """Create filesystem object with correct storage options based on the protocol."""
+    # if not protocol:
+    #     # Defaults to LocalFileSystem
+    #     return fsspec.filesystem(protocol)
 
-    if not storage_options:
-        logger.info(f"Using default storage options for `{protocol}` filesystem.")
-        if protocol == S3:
-            storage_options = S3RemoteStorageOptions().get_storage_options()
+    # if not storage_options:
+    #     logger.info(f"Using default storage options for `{protocol}` filesystem.")
+    #     if protocol == S3:
+    #         storage_options = S3RemoteStorageOptions().get_storage_options()
 
-    try:
-        return fsspec.filesystem(protocol, **storage_options)
-    except Exception as e:
-        logger.warning(
-            f"Failed to use storage_options for {protocol} filesystem: {e}. Initializing without storage_options."
-        )
-        return fsspec.filesystem(protocol)
+    # try:
+    #     return fsspec.filesystem(protocol, **storage_options)
+    # except Exception as e:
+    #     logger.warning(
+    #         f"Failed to use storage_options for {protocol} filesystem: {e}. Initializing without storage_options."
+    #     )
+    #     return fsspec.filesystem(protocol)
+    return fsspec.filesystem(protocol)
 
 
 def get_fs_and_path(url, storage_options: Optional[Dict[str, Any]] = None) -> Tuple[fsspec.filesystem, str]:
