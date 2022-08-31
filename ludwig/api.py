@@ -1518,6 +1518,10 @@ class LudwigModel:
         )
 
     def _check_initialization(self):
+        print("Checking initialization...")
+        print(f"model: {self.model is not None}")
+        print(f"config: {self.config is not None}")
+        print(f"training_set_metadata: {self.training_set_metadata is not None}")
         if self.model is None or self.config is None or self.training_set_metadata is None:
             raise ValueError("Model has not been trained or loaded")
 
