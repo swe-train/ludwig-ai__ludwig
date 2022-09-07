@@ -46,9 +46,6 @@ class Backend(ABC):
         self._dataset_manager = dataset_manager
         self._cache_manager = CacheManager(self._dataset_manager, cache_dir, cache_credentials)
         self._hyperopt_sync_manager = HyperoptSyncManager(hyperopt_sync_dir, hyperopt_sync_credentials)
-        print("Initialized Hyperopt Sync Manager")
-        print(f"Hyperopt Sync Dir: {self._hyperopt_sync_manager.sync_dir}")
-        print(f"Hyperopt Sync Credentials: {self._hyperopt_sync_manager.credentials}")
 
     @property
     def cache(self):

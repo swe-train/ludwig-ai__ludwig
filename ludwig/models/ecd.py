@@ -152,14 +152,25 @@ class ECD(BaseModel):
 
     def save(self, save_path):
         """Saves the model to the given path."""
+        print(f"[Model Save] Path: {save_path}")
         weights_save_path = os.path.join(save_path, MODEL_WEIGHTS_FILE_NAME)
+        print(f"[Model Save] State Dict: {self.state_dict()}")
         torch.save(self.state_dict(), weights_save_path)
+        try:
+            if os.stat(weights_save_path).st_size == 0:
+                print("Model file is empty")
+            else:
+                print("Model file is not empty")
+        except Exception as e:
+            logger.warning(f"Error while checking model weights file size: {e}")
 
-    def load(self, save_path):
+    def load(self, load_path):
         """Loads the model from the given path."""
-        weights_save_path = os.path.join(save_path, MODEL_WEIGHTS_FILE_NAME)
+        print(f"[Model Load] Path: {load_path}")
+        weights_save_path = os.path.join(load_path, MODEL_WEIGHTS_FILE_NAME)
         device = torch.device(get_torch_device())
         self.load_state_dict(torch.load(weights_save_path, map_location=device))
+        print(f"[Model Load] State Dict: {self.state_dict()}")
 
     def get_args(self):
         """Returns init arguments for constructing this model."""

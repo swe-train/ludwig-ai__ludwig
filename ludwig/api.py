@@ -20,6 +20,8 @@
     Python Version: 3+
 """
 import copy
+
+# import json
 import logging
 import os
 import subprocess
@@ -381,6 +383,8 @@ class LudwigModel:
 
         output_url = output_directory
         with upload_output_directory(output_directory) as (output_directory, upload_fn):
+            print(f"[Model Train] Experiment Name: {experiment_name}, Model Name: {model_name}")
+            print(f"[Model Train] Output Directory: {output_directory}")
             train_callbacks = self.callbacks
             if upload_fn is not None:
                 # Upload output files (checkpoints, etc.) to remote storage at the end of
@@ -477,8 +481,14 @@ class LudwigModel:
                     dataset_statistics.append(["Test", len(test_set)])
                 if not skip_save_model:
                     # save train set metadata
+                    # with use_credentials(self.backend.cache.credentials):
+                    # print(f"[Model Train] Training set metadata: {training_set_metadata}")
                     os.makedirs(model_dir, exist_ok=True)
                     save_json(os.path.join(model_dir, TRAIN_SET_METADATA_FILE_NAME), training_set_metadata)
+                    # loaded_file = open(os.path.join(model_dir, TRAIN_SET_METADATA_FILE_NAME), "r")
+                    # loaded_metadata = json.load(loaded_file)
+                    # loaded_file.close()
+                    # print(f"[Model Train] Loaded metadata: {loaded_metadata}")
 
                 logger.info("\nDataset sizes:")
                 logger.info(tabulate(dataset_statistics, headers="firstrow", tablefmt="fancy_grid", floatfmt=".4f"))
@@ -1385,9 +1395,11 @@ class LudwigModel:
         ludwig_model.model = LudwigModel.create_model(config)
 
         # load model weights
+        print("Loading model weights")
         ludwig_model.load_weights(model_dir)
 
         # load train set metadata
+        print("Loading training set metadata")
         ludwig_model.training_set_metadata = backend.broadcast_return(
             lambda: load_metadata(os.path.join(model_dir, TRAIN_SET_METADATA_FILE_NAME))
         )
@@ -1419,7 +1431,7 @@ class LudwigModel:
         self.backend.sync_model(self.model)
 
     def save(self, save_path: str) -> None:
-        """This function allows to save models on disk.
+        """This function allows saving models on disk.
 
         # Inputs
 
@@ -1518,8 +1530,16 @@ class LudwigModel:
         )
 
     def _check_initialization(self):
-        if self.model is None or self.config is None or self.training_set_metadata is None:
-            raise ValueError("Model has not been trained or loaded")
+        print("Checking initialization...")
+        if self.config is None:
+            raise ValueError("self.config is None")
+        elif self.training_set_metadata is None:
+            raise ValueError("self.training_set_metadata is None")
+        elif self.model is None:
+            raise ValueError("self.model is None")
+        print("Model initialization check passed.")
+        # if self.model is None or self.config is None or self.training_set_metadata is None:
+        #     raise ValueError("Model has not been trained or loaded")
 
     @staticmethod
     def create_model(config: dict, random_seed: int = default_random_seed) -> BaseModel:
