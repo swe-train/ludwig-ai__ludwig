@@ -22,7 +22,7 @@ from typing import Callable, Optional, Union
 import numpy as np
 import pandas as pd
 
-from ludwig.data.cache.manager import CacheManager
+from ludwig.data.cache.manager import CacheManager, HyperoptSyncManager
 from ludwig.data.dataframe.pandas import PANDAS
 from ludwig.data.dataset.base import DatasetManager
 from ludwig.data.dataset.pandas import PandasDatasetManager
@@ -40,9 +40,12 @@ class Backend(ABC):
         dataset_manager: DatasetManager,
         cache_dir: Optional[str] = None,
         cache_credentials: Optional[Union[str, dict]] = None,
+        hyperopt_sync_dir: Optional[str] = None,
+        hyperopt_sync_credentials: Optional[Union[str, dict]] = None,
     ):
         self._dataset_manager = dataset_manager
         self._cache_manager = CacheManager(self._dataset_manager, cache_dir, cache_credentials)
+        self._hyperopt_sync_manager = HyperoptSyncManager(hyperopt_sync_dir, hyperopt_sync_credentials)
 
     @property
     def cache(self):
@@ -51,6 +54,10 @@ class Backend(ABC):
     @property
     def dataset_manager(self):
         return self._dataset_manager
+
+    @property
+    def hyperopt_sync_manager(self):
+        return self._hyperopt_sync_manager
 
     @abstractmethod
     def initialize(self):

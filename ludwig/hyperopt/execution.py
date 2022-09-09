@@ -403,6 +403,7 @@ class RayTuneExecutor:
         backend,
         debug,
     ):
+        print(f"[_evaluate_best_model] Evaluating best model at path: {best_model_path}")
         best_model = LudwigModel.load(
             os.path.join(best_model_path, "model"),
             backend=backend,
@@ -507,14 +508,14 @@ class RayTuneExecutor:
                 """Checkpoints the progress tracker."""
                 if is_using_ray_backend:
                     save_path = Path(save_path)
-                    remote_checkpoint_dir = self._get_remote_checkpoint_dir()
-                    if remote_checkpoint_dir is not None:
-                        sync_client = tune_executor.sync_client
-                        sync_client.sync_up(str(save_path.parent.parent.absolute()), remote_checkpoint_dir)
-                        sync_client.wait_or_retry()
+                    # remote_checkpoint_dir = self._get_remote_checkpoint_dir()
+                    # if remote_checkpoint_dir is not None:
+                    #     sync_client = tune_executor.sync_client
+                    #     sync_client.sync_up(str(save_path.parent.parent.absolute()), remote_checkpoint_dir)
+                    #     sync_client.wait_or_retry()
                     ray_queue.put((progress_tracker, str(save_path)))
                     return
-                checkpoint(progress_tracker, save_path)
+                # checkpoint(progress_tracker, save_path)
 
             def on_trainer_train_setup(self, trainer, save_path, is_coordinator):
                 if is_using_ray_backend and checkpoint_dir and driver_trial_location != ray.util.get_node_ip_address():
@@ -524,11 +525,11 @@ class RayTuneExecutor:
                         if path not in (save_path.parent, checkpoint_dir):
                             shutil.rmtree(path, ignore_errors=True)
 
-                    remote_checkpoint_dir = self._get_remote_checkpoint_dir()
-                    if remote_checkpoint_dir is not None:
-                        sync_client = tune_executor.sync_client
-                        sync_client.sync_down(remote_checkpoint_dir, str(trial_dir.absolute()))
-                        sync_client.wait_or_retry()
+                    # remote_checkpoint_dir = self._get_remote_checkpoint_dir()
+                    # if remote_checkpoint_dir is not None:
+                    #     sync_client = tune_executor.sync_client
+                    #     sync_client.sync_down(remote_checkpoint_dir, str(trial_dir.absolute()))
+                    #     sync_client.wait_or_retry()
 
             def on_eval_end(self, trainer, progress_tracker, save_path):
                 progress_tracker.tune_checkpoint_num += 1
@@ -777,7 +778,9 @@ class RayTuneExecutor:
             # Build Sync Config
             if self.sync_function_template:
                 self.sync_config = tune.SyncConfig(
-                    sync_to_driver=False, upload_dir=output_directory, syncer=self.sync_function_template
+                    sync_to_driver=False,
+                    upload_dir=output_directory,
+                    syncer=self.sync_function_template,
                 )
             else:
                 self.sync_config = tune.SyncConfig(sync_to_driver=False, upload_dir=output_directory)
@@ -805,6 +808,7 @@ class RayTuneExecutor:
         # otherwise will start a new experiment:
         # https://docs.ray.io/en/latest/tune/tutorials/tune-stopping.html
         should_resume = "AUTO" if resume is None else resume
+        checkpoint_score_attr = mode + "-" + metric
 
         try:
             analysis = tune.run(
@@ -818,6 +822,7 @@ class RayTuneExecutor:
                 search_alg=search_alg,
                 num_samples=self.num_samples,
                 keep_checkpoints_num=1,
+                checkpoint_score_attr=checkpoint_score_attr,
                 max_failures=1,  # retry a trial failure once
                 resources_per_trial=resources_per_trial,
                 time_budget_s=self.time_budget_s,
@@ -860,6 +865,7 @@ class RayTuneExecutor:
                     if validation_set is not None and validation_set.size > 0:
                         trial_path = trial["trial_dir"]
                         best_model_path = self._get_best_model_path(trial_path, analysis)
+                        print(f"Best model path: {best_model_path}")
                         if best_model_path is not None:
                             self._evaluate_best_model(
                                 trial,
@@ -1087,6 +1093,9 @@ def run_experiment(
 ):
     for callback in callbacks or []:
         callback.on_hyperopt_trial_start(parameters)
+
+    print(f"[run_experiment] Output Directory: {output_directory}")
+    print(f"[run_experiment] Training Set Metadata: {training_set_metadata}")
 
     # Collect training and validation losses and metrics
     # & append it to `results`
