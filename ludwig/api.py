@@ -560,6 +560,7 @@ class LudwigModel:
                         model=self.model,
                         config=self.config,
                         config_fp=self.config_fp,
+                        save_path=model_dir,
                     )
 
                 try:

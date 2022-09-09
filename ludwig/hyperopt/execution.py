@@ -508,14 +508,31 @@ class RayTuneExecutor:
                 """Checkpoints the progress tracker."""
                 if is_using_ray_backend:
                     save_path = Path(save_path)
-                    # remote_checkpoint_dir = self._get_remote_checkpoint_dir()
-                    # if remote_checkpoint_dir is not None:
-                    #     sync_client = tune_executor.sync_client
-                    #     sync_client.sync_up(str(save_path.parent.parent.absolute()), remote_checkpoint_dir)
-                    #     sync_client.wait_or_retry()
+                    remote_checkpoint_dir = self._get_remote_checkpoint_dir()
+                    if remote_checkpoint_dir is not None:
+                        sync_client = tune_executor.sync_client
+                        sync_client.sync_up(str(save_path.parent.parent.absolute()), remote_checkpoint_dir)
+                        sync_client.wait_or_retry()
                     ray_queue.put((progress_tracker, str(save_path)))
                     return
-                # checkpoint(progress_tracker, save_path)
+                checkpoint(progress_tracker, save_path)
+
+            def on_train_start(
+                self,
+                model,
+                config: Dict[str, Any],
+                config_fp: Union[str, None],
+                save_path: str,
+            ):
+                print("Inside on_train_start")
+                time.sleep(5)
+                if is_using_ray_backend:
+                    save_path = Path(save_path)
+                    remote_checkpoint_dir = self._get_remote_checkpoint_dir()
+                    if remote_checkpoint_dir is not None:
+                        sync_client = tune_executor.sync_client
+                        sync_client.sync_up(str(save_path.parent.parent.absolute()), remote_checkpoint_dir)
+                        sync_client.wait_or_retry()
 
             def on_trainer_train_setup(self, trainer, save_path, is_coordinator):
                 if is_using_ray_backend and checkpoint_dir and driver_trial_location != ray.util.get_node_ip_address():
@@ -525,11 +542,11 @@ class RayTuneExecutor:
                         if path not in (save_path.parent, checkpoint_dir):
                             shutil.rmtree(path, ignore_errors=True)
 
-                    # remote_checkpoint_dir = self._get_remote_checkpoint_dir()
-                    # if remote_checkpoint_dir is not None:
-                    #     sync_client = tune_executor.sync_client
-                    #     sync_client.sync_down(remote_checkpoint_dir, str(trial_dir.absolute()))
-                    #     sync_client.wait_or_retry()
+                    remote_checkpoint_dir = self._get_remote_checkpoint_dir()
+                    if remote_checkpoint_dir is not None:
+                        sync_client = tune_executor.sync_client
+                        sync_client.sync_down(remote_checkpoint_dir, str(trial_dir.absolute()))
+                        sync_client.wait_or_retry()
 
             def on_eval_end(self, trainer, progress_tracker, save_path):
                 progress_tracker.tune_checkpoint_num += 1
@@ -776,6 +793,7 @@ class RayTuneExecutor:
 
         if has_remote_protocol(output_directory):
             # Build Sync Config
+            run_experiment_trial = tune.durable(run_experiment_trial)
             if self.sync_function_template:
                 self.sync_config = tune.SyncConfig(
                     sync_to_driver=False,
