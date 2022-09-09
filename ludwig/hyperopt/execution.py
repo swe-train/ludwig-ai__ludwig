@@ -524,8 +524,6 @@ class RayTuneExecutor:
                 config_fp: Union[str, None],
                 save_path: str,
             ):
-                print("Inside on_train_start")
-                time.sleep(5)
                 if is_using_ray_backend:
                     save_path = Path(save_path)
                     remote_checkpoint_dir = self._get_remote_checkpoint_dir()
