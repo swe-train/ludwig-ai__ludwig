@@ -4,11 +4,8 @@ import platform
 import tempfile
 from urllib.parse import quote
 
-import fsspec
 import pytest
-import s3fs
 
-from ludwig.constants import CLIENT_KWARGS, KEY, SECRET
 from ludwig.utils.fs_utils import get_fs_and_path
 
 
@@ -43,13 +40,6 @@ def test_get_fs_and_path_unicode():
 
 
 @pytest.mark.filesystem
-def test_get_fs_and_path_with_local_directory(tmpdir):
-    fs, path = get_fs_and_path(tmpdir)
-    assert isinstance(fs, fsspec.implementations.local.LocalFileSystem)
-    assert path == tmpdir
-
-
-@pytest.mark.filesystem
 @pytest.mark.skipif(platform.system() == "Windows", reason="Skipping if windows.")
 def test_get_fs_and_path_invalid_linux():
     invalid_chars = {
@@ -81,31 +71,3 @@ def test_get_fs_and_path_invalid_windows():
         url = f"http://a/{quote(c)}"
         with pytest.raises(e):
             create_file(url)
-
-
-@pytest.mark.filesystem
-def test_get_fs_and_path_with_storage_options():
-    bucket_name = "invalid-bucket"
-
-    # No storage options
-    fs, path = get_fs_and_path(f"s3://{bucket_name}")
-    assert isinstance(fs, s3fs.core.S3FileSystem)
-    assert path == bucket_name
-
-    # Empty storage options
-    storage_options = None
-    fs, path = get_fs_and_path(f"s3://{bucket_name}", storage_options=storage_options)
-    assert isinstance(fs, s3fs.core.S3FileSystem)
-    assert path == bucket_name
-
-    # Empty storage options
-    storage_options = {KEY: "", SECRET: "", CLIENT_KWARGS: ""}
-    fs, path = get_fs_and_path(f"s3://{bucket_name}", storage_options=storage_options)
-    assert isinstance(fs, s3fs.core.S3FileSystem)
-    assert path == bucket_name
-
-    # Fake credentials - should still initialize correctly
-    storage_options = {SECRET: "456", CLIENT_KWARGS: "789"}
-    fs, path = get_fs_and_path(f"s3://{bucket_name}", storage_options=storage_options)
-    assert isinstance(fs, s3fs.core.S3FileSystem)
-    assert path == bucket_name

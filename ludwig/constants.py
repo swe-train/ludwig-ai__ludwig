@@ -230,11 +230,3 @@ TRAIN_TAG = "train"
 EVAL_TAG = "evaluate"
 
 HYPEROPT_LOCAL_DIR = "~/ray_results"
-
-KEY = "key"
-SECRET = "secret"
-ENDPOINT_URL = "endpoint_url"
-CLIENT_KWARGS = "client_kwargs"
-AWS_ACCESS_KEY_ID = "AWS_ACCESS_KEY_ID"
-AWS_SECRET_ACCESS_KEY = "AWS_SECRET_ACCESS_KEY"
-S3_ENDPOINT_URL = "S3_ENDPOINT_URL"
