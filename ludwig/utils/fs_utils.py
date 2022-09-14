@@ -125,9 +125,11 @@ def safe_move_file(src, dst):
     moves-in-python/
 
     *   Moves must be atomic.  `shutil.move()` is not atomic.
+
     *   Moves must work across filesystems.  Sometimes temp directories and the
         model directories live on different filesystems.  `os.replace()` will
         throw errors if run across filesystems.
+
     So we try `os.replace()`, but if we detect a cross-filesystem copy, we
     switch to `shutil.move()` with some wrappers to make it atomic.
     """
