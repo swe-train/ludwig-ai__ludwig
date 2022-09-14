@@ -153,7 +153,7 @@ class GBM(BaseModel):
 
         return output_logits
 
-    def save(self, save_path):
+    def save(self, save_path: str):
         """Saves the model to the given path."""
         if self.lgb_booster is None:
             raise ValueError("Model has not been trained yet.")
@@ -161,10 +161,10 @@ class GBM(BaseModel):
         weights_save_path = os.path.join(save_path, MODEL_WEIGHTS_FILE_NAME)
         self.lgb_booster.save_model(weights_save_path, num_iteration=self.lgb_booster.best_iteration)
 
-    def load(self, save_path):
+    def load(self, load_path: str):
         """Loads the model from the given path."""
-        weights_save_path = os.path.join(save_path, MODEL_WEIGHTS_FILE_NAME)
-        self.lgb_booster = lgb.Booster(model_file=weights_save_path)
+        weights_load_path = os.path.join(load_path, MODEL_WEIGHTS_FILE_NAME)
+        self.lgb_booster = lgb.Booster(model_file=weights_load_path)
         self.compile()
 
         device = torch.device(get_torch_device())
