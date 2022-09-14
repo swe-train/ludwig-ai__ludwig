@@ -185,6 +185,7 @@ class RayTuneExecutor:
         self.sync_config = None
         self.sync_client = None
         self.sync_function_template = kwargs.get("sync_function_template", None)
+        self.delete_function_template = kwargs.get("delete_function_template", None)
         # Head node is the node to which all checkpoints are synced if running on a K8s cluster.
         self.head_node_ip = ray.util.get_node_ip_address()
 
@@ -876,9 +877,11 @@ class RayTuneExecutor:
             if _ray_114:
                 self.sync_client = get_node_to_storage_syncer(SyncConfig(upload_dir=output_directory))
             elif self.sync_function_template:
+                print(f"Delete function template: {self.delete_function_template}")
                 self.sync_client = CommandBasedClient(
                     sync_up_template=self.sync_function_template,
                     sync_down_template=self.sync_function_template,
+                    delete_template=self.delete_function_template, # No errors if this is None
                 )
             else:
                 self.sync_client = get_cloud_sync_client(output_directory)

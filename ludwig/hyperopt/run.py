@@ -293,6 +293,7 @@ def hyperopt(
             )
 
     sync_function_template = kwargs.get("sync_function_template", None)
+    delete_function_template = kwargs.get("delete_function_template", None)
 
     hyperopt_executor = get_build_hyperopt_executor(executor[TYPE])(
         parameters,
@@ -302,6 +303,7 @@ def hyperopt(
         split,
         search_alg=search_alg,
         sync_function_template=sync_function_template,
+        delete_function_template=delete_function_template,
         **executor,
     )
 
