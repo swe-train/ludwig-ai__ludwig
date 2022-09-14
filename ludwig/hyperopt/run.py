@@ -186,12 +186,6 @@ def hyperopt(
     """
     from ludwig.hyperopt.execution import get_build_hyperopt_executor, RayTuneExecutor
 
-    print("Using backend from Predibase with no overrides")
-
-    # print(f"Passed in output_directory: {output_directory}")
-    # output_directory = "s3://arnav-ml-data-predibase/multi_node_testing_cache"
-    # print(f"Overriding output_directory to: {output_directory}")
-
     # check if config is a path or a dict
     if isinstance(config, str):  # assume path
         with open_file(config, "r") as def_file:
@@ -299,9 +293,6 @@ def hyperopt(
             )
 
     sync_function_template = kwargs.get("sync_function_template", None)
-    # print(f"Sync function template: {sync_function_template}")
-    # sync_function_template = None
-    # print(f"Overriding sync function template to {sync_function_template}")
 
     hyperopt_executor = get_build_hyperopt_executor(executor[TYPE])(
         parameters,
@@ -392,11 +383,6 @@ def hyperopt(
         features_eligible_for_shared_params=features_eligible_for_shared_params,
         **kwargs,
     )
-
-    print("Hyperopt Results")
-    print(hyperopt_results.experiment_analysis.results_df)
-    print(hyperopt_results.experiment_analysis.results_df.columns)
-    print(hyperopt_results.experiment_analysis.results_df["trial_dir"])
 
     if backend.is_coordinator():
         print_hyperopt_results(hyperopt_results)

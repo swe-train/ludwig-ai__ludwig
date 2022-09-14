@@ -477,9 +477,8 @@ class LudwigModel:
                     dataset_statistics.append(["Test", len(test_set)])
                 if not skip_save_model:
                     # save train set metadata
-                    training_set_metadata_path = os.path.join(model_dir, TRAIN_SET_METADATA_FILE_NAME)
                     os.makedirs(model_dir, exist_ok=True)
-                    save_json(training_set_metadata_path, training_set_metadata)
+                    save_json(os.path.join(model_dir, TRAIN_SET_METADATA_FILE_NAME), training_set_metadata)
 
                 logger.info("\nDataset sizes:")
                 logger.info(tabulate(dataset_statistics, headers="firstrow", tablefmt="fancy_grid", floatfmt=".4f"))
@@ -1387,11 +1386,9 @@ class LudwigModel:
         ludwig_model.model = LudwigModel.create_model(config)
 
         # load model weights
-        print("Loading model weights")
         ludwig_model.load_weights(model_dir)
 
         # load train set metadata
-        print("Loading training set metadata")
         ludwig_model.training_set_metadata = backend.broadcast_return(
             lambda: load_metadata(os.path.join(model_dir, TRAIN_SET_METADATA_FILE_NAME))
         )
@@ -1522,16 +1519,8 @@ class LudwigModel:
         )
 
     def _check_initialization(self):
-        print("Checking initialization...")
-        if self.config is None:
-            raise ValueError("self.config is None")
-        elif self.training_set_metadata is None:
-            raise ValueError("self.training_set_metadata is None")
-        elif self.model is None:
-            raise ValueError("self.model is None")
-        print("Model initialization check passed.")
-        # if self.model is None or self.config is None or self.training_set_metadata is None:
-        #     raise ValueError("Model has not been trained or loaded")
+        if self.model is None or self.config is None or self.training_set_metadata is None:
+            raise ValueError("Model has not been trained or loaded")
 
     @staticmethod
     def create_model(config: dict, random_seed: int = default_random_seed) -> BaseModel:
