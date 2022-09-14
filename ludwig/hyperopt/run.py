@@ -217,12 +217,6 @@ def hyperopt(
     logging.info(pformat(hyperopt_config, indent=4))
     logging.info("\n")
 
-    logging.info(
-        "Features that may be updated in hyperopt trials if default parameters are specified in the search space"
-    )
-    logging.info(pformat(dict(features_eligible_for_shared_params), indent=4))
-    logging.info("\n")
-
     search_alg = hyperopt_config[SEARCH_ALG]
     executor = hyperopt_config[EXECUTOR]
     parameters = hyperopt_config[PARAMETERS]

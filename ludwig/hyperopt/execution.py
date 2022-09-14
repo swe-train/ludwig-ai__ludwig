@@ -558,8 +558,7 @@ class RayTuneExecutor:
             ):
                 self.config = config
 
-                # When running on a remote worker, the model metadata files will only have been
-                # saved to the driver process, so re-save it here before uploading.
+                # Save files again incase they don't exist on the driver node
                 training_set_metadata_path = os.path.join(save_path, TRAIN_SET_METADATA_FILE_NAME)
                 if not os.path.exists(training_set_metadata_path):
                     save_json(training_set_metadata_path, self.training_set_metadata)
@@ -881,7 +880,7 @@ class RayTuneExecutor:
                 self.sync_client = CommandBasedClient(
                     sync_up_template=self.sync_function_template,
                     sync_down_template=self.sync_function_template,
-                    delete_template=self.delete_function_template, # No errors if this is None
+                    delete_template=self.delete_function_template,  # No errors if this is None
                 )
             else:
                 self.sync_client = get_cloud_sync_client(output_directory)
