@@ -20,8 +20,7 @@
     Python Version: 3+
 """
 import copy
-
-# import json
+import json
 import logging
 import os
 import subprocess
@@ -481,14 +480,15 @@ class LudwigModel:
                     dataset_statistics.append(["Test", len(test_set)])
                 if not skip_save_model:
                     # save train set metadata
-                    # with use_credentials(self.backend.cache.credentials):
-                    # print(f"[Model Train] Training set metadata: {training_set_metadata}")
+                    training_set_metadata_path = os.path.join(model_dir, TRAIN_SET_METADATA_FILE_NAME)
+                    print(f"[API Train] Saving Training Set Metadata Path: {training_set_metadata_path}")
+                    print(f"[API Train] Saving Training Set Metadata: {training_set_metadata.keys()}")
                     os.makedirs(model_dir, exist_ok=True)
-                    save_json(os.path.join(model_dir, TRAIN_SET_METADATA_FILE_NAME), training_set_metadata)
-                    # loaded_file = open(os.path.join(model_dir, TRAIN_SET_METADATA_FILE_NAME), "r")
-                    # loaded_metadata = json.load(loaded_file)
-                    # loaded_file.close()
-                    # print(f"[Model Train] Loaded metadata: {loaded_metadata}")
+                    save_json(training_set_metadata_path, training_set_metadata)
+                    loaded_file = open(os.path.join(model_dir, TRAIN_SET_METADATA_FILE_NAME))
+                    loaded_metadata = json.load(loaded_file)
+                    loaded_file.close()
+                    print(f"[API Train] Loaded metadata: {loaded_metadata.keys()}")
 
                 logger.info("\nDataset sizes:")
                 logger.info(tabulate(dataset_statistics, headers="firstrow", tablefmt="fancy_grid", floatfmt=".4f"))

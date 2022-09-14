@@ -154,7 +154,6 @@ class ECD(BaseModel):
         """Saves the model to the given path."""
         print(f"[Model Save] Path: {save_path}")
         weights_save_path = os.path.join(save_path, MODEL_WEIGHTS_FILE_NAME)
-        print(f"[Model Save] State Dict: {self.state_dict()}")
         torch.save(self.state_dict(), weights_save_path)
         try:
             if os.stat(weights_save_path).st_size == 0:

@@ -186,6 +186,12 @@ def hyperopt(
     """
     from ludwig.hyperopt.execution import get_build_hyperopt_executor, RayTuneExecutor
 
+    print("Using backend from Predibase with no overrides")
+
+    # print(f"Passed in output_directory: {output_directory}")
+    # output_directory = "s3://arnav-ml-data-predibase/multi_node_testing_cache"
+    # print(f"Overriding output_directory to: {output_directory}")
+
     # check if config is a path or a dict
     if isinstance(config, str):  # assume path
         with open_file(config, "r") as def_file:
@@ -293,6 +299,9 @@ def hyperopt(
             )
 
     sync_function_template = kwargs.get("sync_function_template", None)
+    # print(f"Sync function template: {sync_function_template}")
+    # sync_function_template = None
+    # print(f"Overriding sync function template to {sync_function_template}")
 
     hyperopt_executor = get_build_hyperopt_executor(executor[TYPE])(
         parameters,
@@ -396,7 +405,6 @@ def hyperopt(
             results_directory = os.path.join(output_directory, experiment_name)
 
             with use_credentials(backend.hyperopt_sync_manager.credentials):
-                logging.info(f"Use Credentials for Makedirs: {backend.hyperopt_sync_manager.credentials}")
                 makedirs(results_directory, exist_ok=True)
 
                 hyperopt_stats = {
