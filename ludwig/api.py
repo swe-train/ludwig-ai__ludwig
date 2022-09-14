@@ -20,7 +20,6 @@
     Python Version: 3+
 """
 import copy
-import json
 import logging
 import os
 import subprocess
@@ -382,8 +381,6 @@ class LudwigModel:
 
         output_url = output_directory
         with upload_output_directory(output_directory) as (output_directory, upload_fn):
-            print(f"[Model Train] Experiment Name: {experiment_name}, Model Name: {model_name}")
-            print(f"[Model Train] Output Directory: {output_directory}")
             train_callbacks = self.callbacks
             if upload_fn is not None:
                 # Upload output files (checkpoints, etc.) to remote storage at the end of
@@ -481,14 +478,8 @@ class LudwigModel:
                 if not skip_save_model:
                     # save train set metadata
                     training_set_metadata_path = os.path.join(model_dir, TRAIN_SET_METADATA_FILE_NAME)
-                    print(f"[API Train] Saving Training Set Metadata Path: {training_set_metadata_path}")
-                    print(f"[API Train] Saving Training Set Metadata: {training_set_metadata.keys()}")
                     os.makedirs(model_dir, exist_ok=True)
                     save_json(training_set_metadata_path, training_set_metadata)
-                    loaded_file = open(os.path.join(model_dir, TRAIN_SET_METADATA_FILE_NAME))
-                    loaded_metadata = json.load(loaded_file)
-                    loaded_file.close()
-                    print(f"[API Train] Loaded metadata: {loaded_metadata.keys()}")
 
                 logger.info("\nDataset sizes:")
                 logger.info(tabulate(dataset_statistics, headers="firstrow", tablefmt="fancy_grid", floatfmt=".4f"))
