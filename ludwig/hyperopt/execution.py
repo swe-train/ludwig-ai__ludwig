@@ -333,7 +333,6 @@ class RayTuneExecutor:
             remote_checkpoint_dir = os.path.join(
                 self.sync_config.upload_dir, *_get_relative_checkpoints_dir_parts(trial_dir)
             )
-            print(f"[_get_remote_checkpoint_dir] remote_checkpoint_dir: {remote_checkpoint_dir}")
             return remote_checkpoint_dir
         elif self.kubernetes_namespace is not None:
             # Kubernetes sync config. Returns driver node name and path.
@@ -358,7 +357,6 @@ class RayTuneExecutor:
             remote_checkpoint_dir = os.path.join(
                 self.sync_config.upload_dir, "tmp", *_get_relative_checkpoints_dir_parts(trial_dir)
             )
-            print(f"[_get_tmp_remote_checkpoint_dir] remote_checkpoint_dir: {remote_checkpoint_dir}")
             return remote_checkpoint_dir
         elif self.kubernetes_namespace is not None:
             # Kubernetes sync config. Returns driver node name and path.
@@ -401,9 +399,7 @@ class RayTuneExecutor:
 
     def _get_best_model_path(self, trial_path, analysis):
         remote_checkpoint_dir = self._get_remote_checkpoint_dir(Path(trial_path))
-        print(f"[_get_best_model_path] remote_checkpoint_dir: {remote_checkpoint_dir}")
         # If remote checkpoint dir, sync down artifacts from remote to local
-        print(f"[_get_best_model_path] trial_path: {trial_path}")
         print(f"[_get_best_model_path] syncing down artifacts from {remote_checkpoint_dir} to {trial_path}")
         if remote_checkpoint_dir is not None:
             self.sync_client.sync_down(remote_checkpoint_dir, trial_path)
@@ -551,7 +547,6 @@ class RayTuneExecutor:
 
             def on_preprocess_end(self, training_set, validation_set, test_set, training_set_metadata: Dict[str, Any]):
                 self.training_set_metadata = training_set_metadata
-                print(f"[On Preprocess End] Training Set Metadata: {self.training_set_metadata.keys()}")
 
             def on_train_start(
                 self,
@@ -561,30 +556,16 @@ class RayTuneExecutor:
                 save_path: str,
             ):
                 self.config = config
-                print(f"[On Train Start] Config: {self.config.keys()}")
 
-                print(f"[On Train Start] Save Path: {save_path}")
                 # When running on a remote worker, the model metadata files will only have been
                 # saved to the driver process, so re-save it here before uploading.
                 training_set_metadata_path = os.path.join(save_path, TRAIN_SET_METADATA_FILE_NAME)
                 if not os.path.exists(training_set_metadata_path):
                     save_json(training_set_metadata_path, self.training_set_metadata)
-                else:
-                    print("[On Train Start] Path exists for training_set_metadata, skipping save")
-                loaded_file = open(training_set_metadata_path)
-                loaded_metadata = json.load(loaded_file)
-                loaded_file.close()
-                print(f"[On Train Start] Loaded metadata: {loaded_metadata.keys()}")
 
                 model_hyperparameters_path = os.path.join(save_path, MODEL_HYPERPARAMETERS_FILE_NAME)
                 if not os.path.exists(model_hyperparameters_path):
                     save_json(model_hyperparameters_path, self.config)
-                else:
-                    print("[On Train Start] Path exists for model_hyperparameters, skipping save")
-                loaded_file = open(model_hyperparameters_path)
-                loaded_model_parameters = json.load(loaded_file)
-                loaded_file.close()
-                print(f"[On Train Start] Loaded Model Parameters: {loaded_model_parameters.keys()}")
 
                 if is_using_ray_backend:
                     save_path = Path(save_path)
@@ -599,40 +580,9 @@ class RayTuneExecutor:
                         sync_client.wait_or_retry()
 
             def on_trainer_train_setup(self, trainer, save_path, is_coordinator):
-                print(f"[On Trainer Train Setup] Save Path: {save_path}")
-
-                # if not self.training_set_metadata:
-                #     print(f"[On Trainer Train Setup] Training Set Metadata: {self.training_set_metadata}")
-                # if not self.config:
-                #     print(f"[On Trainer Train Setup] Config: {self.config}")
-
-                # When running on a remote worker, the model metadata files will only have been
-                # saved to the driver process, so re-save it here before uploading.
-
-                training_set_metadata_path = os.path.join(save_path, TRAIN_SET_METADATA_FILE_NAME)
-                loaded_file = open(training_set_metadata_path)
-                loaded_metadata = json.load(loaded_file)
-                loaded_file.close()
-                if not loaded_metadata:
-                    print(f"[On Trainer Train Setup] Loaded metadata: {loaded_metadata}")
-
-                model_hyperparameters_path = os.path.join(save_path, MODEL_HYPERPARAMETERS_FILE_NAME)
-                loaded_file = open(model_hyperparameters_path)
-                loaded_model_parameters = json.load(loaded_file)
-                loaded_file.close()
-                if not loaded_model_parameters:
-                    print(f"[On Trainer Train Setup] Loaded Model Parameters: {loaded_model_parameters}")
-
-                print(f"[On Trainer Train Setup] is_using_ray_backend: {is_using_ray_backend}")
-                if checkpoint_dir is not None:
-                    print(f"[On Trainer Train Setup] checkpoint_dir: {checkpoint_dir}")
-                print(f"[On Trainer Train Setup] driver_trial_location: {driver_trial_location}")
-                print(f"[On Trainer Train Setup] ray node IP: {ray.util.get_node_ip_address()}")
                 if is_using_ray_backend and driver_trial_location != ray.util.get_node_ip_address():
-                    print("[On Trainer Train Setup] Since trial IP != driver IP, manual sync down is required")
                     save_path = Path(save_path)
 
-                    print("[On Trainer Train Setup - Inside Conditional Block] Removing checkpoints")
                     for path in trial_dir.glob("checkpoint*"):
                         if path not in (save_path.parent, checkpoint_dir):
                             shutil.rmtree(path, ignore_errors=True)
@@ -647,24 +597,6 @@ class RayTuneExecutor:
                         sync_client = tune_executor.sync_client
                         sync_client.sync_down(remote_checkpoint_dir, str(trial_dir.absolute()))
                         sync_client.wait_or_retry()
-
-                    training_set_metadata_path = os.path.join(save_path, TRAIN_SET_METADATA_FILE_NAME)
-                    loaded_file = open(training_set_metadata_path)
-                    loaded_metadata = json.load(loaded_file)
-                    loaded_file.close()
-                    print(
-                        "[On Trainer Train Setup - Inside Conditional Block - After syncing down]"
-                        f" Loaded metadata: {loaded_metadata}"
-                    )
-
-                    model_hyperparameters_path = os.path.join(save_path, MODEL_HYPERPARAMETERS_FILE_NAME)
-                    loaded_file = open(model_hyperparameters_path)
-                    loaded_model_parameters = json.load(loaded_file)
-                    loaded_file.close()
-                    print(
-                        "[On Trainer Train Setup - Inside Conditional Block - After syncing down]"
-                        f" Loaded Model Parameters: {loaded_model_parameters}"
-                    )
 
             def on_eval_end(self, trainer, progress_tracker, save_path):
                 progress_tracker.tune_checkpoint_num += 1
@@ -966,6 +898,10 @@ class RayTuneExecutor:
         checkpoint_score_attr = mode + "-" + metric
 
         try:
+            logger.info(
+                "Starting Ray Tune experiment. Trials and their checkpoints will be"
+                f" saved to: {os.path.join(HYPEROPT_LOCAL_DIR, experiment_name)}"
+            )
             analysis = tune.run(
                 f"trainable_func_f{hash_dict(config).decode('ascii')}",
                 name=experiment_name,
@@ -1044,17 +980,17 @@ class RayTuneExecutor:
 
             ordered_trials = [TrialResults.from_dict(load_json_values(kwargs)) for kwargs in temp_ordered_trials]
         else:
-            logger.warning("No trials reported results; check if time budget lower than epoch latency.")
+            logger.warning("No trials reported results; check if time budget is lower than epoch latency.")
             ordered_trials = []
 
         # Remove temporary trials directory if it exists
         print("Cleanup temporary remote directory if it exists")
-        with use_credentials(backend.hyperopt_sync_manager.credentials):
-            tmp_remote_dir_path = os.path.join(backend.hyperopt_sync_manager.sync_dir, "tmp", experiment_name)
-            print("Removing temporary remote directory: ", tmp_remote_dir_path)
-            if path_exists(tmp_remote_dir_path):
-                print(f"{tmp_remote_dir_path} exists, deleting")
-                delete(tmp_remote_dir_path, recursive=True)
+        if has_remote_protocol(output_directory):
+            with use_credentials(backend.hyperopt_sync_manager.credentials):
+                tmp_remote_dir_path = os.path.join(backend.hyperopt_sync_manager.sync_dir, "tmp", experiment_name)
+                if path_exists(tmp_remote_dir_path):
+                    print(f"{tmp_remote_dir_path} exists, deleting")
+                    delete(tmp_remote_dir_path, recursive=True)
 
         return RayTuneResults(ordered_trials=ordered_trials, experiment_analysis=analysis)
 
