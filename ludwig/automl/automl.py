@@ -73,8 +73,16 @@ class AutoTrainResults:
         return self._experiment_analysis.best_trial.trial_id
 
     @property
+    def best_checkpoint(self) -> str:
+        return self._experiment_analysis.best_checkpoint
+
+    @property
+    def best_checkpoint_local_path(self) -> str:
+        return self._experiment_analysis.best_checkpoint.local_path
+
+    @property
     def best_model(self) -> Optional[LudwigModel]:
-        checkpoint = self._experiment_analysis.best_checkpoint
+        checkpoint = self.best_checkpoint()
         if checkpoint is None:
             logging.warning("No best model found")
             return None
