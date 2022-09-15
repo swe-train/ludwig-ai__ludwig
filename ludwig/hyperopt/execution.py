@@ -46,7 +46,8 @@ _ray_113 = version.parse(ray.__version__) >= version.parse("1.13")
 _ray_200 = version.parse(ray.__version__) >= version.parse("2.0")
 if _ray_200:
     from ray.tune.search import SEARCH_ALG_IMPORT
-    from ray.tune.syncer import get_node_to_storage_syncer, SyncConfig
+
+    # from ray.tune.syncer import get_node_to_storage_syncer, SyncConfig
 else:
     from ray.tune.suggest import SEARCH_ALG_IMPORT
     from ray.tune.syncer import get_cloud_sync_client
@@ -863,7 +864,10 @@ class RayTuneExecutor:
 
             # Build Sync Client
             if _ray_200:
-                self.sync_client = get_node_to_storage_syncer(SyncConfig(upload_dir=output_directory))
+                from ludwig.hyperopt.syncer import RemoteSyncer
+
+                # self.sync_client = get_node_to_storage_syncer(SyncConfig(upload_dir=output_directory))
+                self.sync_client = RemoteSyncer(backend=backend, sync_period=60)
             elif self.sync_function_template:
                 self.sync_client = CommandBasedClient(
                     sync_up_template=self.sync_function_template,

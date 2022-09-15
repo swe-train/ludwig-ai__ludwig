@@ -7,8 +7,9 @@ from ludwig.backend import Backend
 from ludwig.utils.data_utils import use_credentials
 
 
-class DefaultSyncer(_BackgroundSyncer):
-    def __init__(self, backend: Backend):
+class RemoteSyncer(_BackgroundSyncer):
+    def __init__(self, backend: Backend, sync_period: float = 300.0):
+        super().__init__(sync_period=sync_period)
         self.backend = backend
 
     def _sync_up_command(self, local_path: str, uri: str, exclude: Optional[List] = None) -> Tuple[Callable, Dict]:
