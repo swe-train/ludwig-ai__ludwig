@@ -581,7 +581,6 @@ class RayTuneExecutor:
 
                     remote_checkpoint_dir = self._get_remote_checkpoint_dir()
                     if remote_checkpoint_dir is not None:
-                        print("[On Trainer Train Setup - Inside Conditional Block] Syncing Down")
                         print(
                             f"[On Trainer Train Setup] Syncing Down from {remote_checkpoint_dir}"
                             f" to {str(trial_dir.absolute())}"
@@ -664,9 +663,8 @@ class RayTuneExecutor:
                     else:
                         # Sync down from tmp_dir to remote_checkpoint_dir
                         print(
-                            "[Trial Driver] Syncing down from {} to {}".format(
-                                tmp_remote_checkpoint_dir, str(trial_dir.absolute())
-                            )
+                            f"[Trial Driver] Syncing down from {tmp_remote_checkpoint_dir}"
+                            f" to {str(trial_dir.absolute())}"
                         )
                         if self.sync_client is not None:
                             self.sync_client.sync_down(tmp_remote_checkpoint_dir, str(trial_dir.absolute()))
