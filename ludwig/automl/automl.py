@@ -82,7 +82,7 @@ class AutoTrainResults:
 
     @property
     def best_checkpoint_local_path(self) -> str:
-        checkpoint = self.best_checkpoint()
+        checkpoint = self.best_checkpoint
         if checkpoint is None:
             logging.warning("No best model found")
             return None
@@ -90,7 +90,7 @@ class AutoTrainResults:
 
     @property
     def best_checkpoint_cloud_path(self) -> str:
-        checkpoint = self.best_checkpoint()
+        checkpoint = self.best_checkpoint
         if checkpoint is None:
             logging.warning("No best model found")
             return None
@@ -98,7 +98,7 @@ class AutoTrainResults:
 
     @property
     def best_model(self) -> Optional[LudwigModel]:
-        checkpoint = self.best_checkpoint()
+        checkpoint = self.best_checkpoint
         if checkpoint is None:
             logging.warning("No best model found")
             return None

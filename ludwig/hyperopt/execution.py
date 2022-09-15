@@ -889,10 +889,6 @@ class RayTuneExecutor:
         checkpoint_score_attr = mode + "-" + metric
 
         try:
-            logger.info(
-                "Starting Ray Tune experiment. Trials and their checkpoints will be"
-                f" saved to: {os.path.join(HYPEROPT_LOCAL_DIR, experiment_name)}"
-            )
             analysis = tune.run(
                 f"trainable_func_f{hash_dict(config).decode('ascii')}",
                 name=experiment_name,
