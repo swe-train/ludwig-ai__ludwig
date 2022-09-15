@@ -865,7 +865,6 @@ class RayTuneExecutor:
             if _ray_200:
                 self.sync_client = get_node_to_storage_syncer(SyncConfig(upload_dir=output_directory))
             elif self.sync_function_template:
-                print(f"Delete function template: {self.delete_function_template}")
                 self.sync_client = CommandBasedClient(
                     sync_up_template=self.sync_function_template,
                     sync_down_template=self.sync_function_template,
