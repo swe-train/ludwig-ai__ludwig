@@ -24,7 +24,6 @@ import torch
 
 from ludwig.backend import Backend, LOCAL_BACKEND
 from ludwig.constants import (
-    BACKFILL,
     BFILL,
     BINARY,
     CHECKSUM,
@@ -40,7 +39,6 @@ from ludwig.constants import (
     FULL,
     NAME,
     NUMBER,
-    PAD,
     PREPROCESSING,
     PROC_COLUMN,
     SPLIT,
@@ -58,6 +56,7 @@ from ludwig.encoders.registry import get_encoder_cls
 from ludwig.features.feature_registries import base_type_registry
 from ludwig.features.feature_utils import compute_feature_hash
 from ludwig.utils import data_utils, strings_utils
+from ludwig.utils.backward_compatibility import upgrade_metadata
 from ludwig.utils.config_utils import merge_config_preprocessing_with_feature_specific_defaults
 from ludwig.utils.data_utils import (
     CACHEABLE_FORMATS,
@@ -1138,7 +1137,7 @@ def build_dataset(
         dataset_cols, feature_configs, global_preprocessing_parameters, backend, metadata=metadata
     )
 
-    # Happens after preprocessing parameters are built so we can use precomputed fill values.
+    # Happens after preprocessing parameters are built, so we can use precomputed fill values.
     logging.debug("handle missing values")
 
     # In some cases, there can be a (temporary) mismatch between the dtype of the column and the type expected by the
@@ -1438,7 +1437,12 @@ def precompute_fill_value(dataset_cols, feature, preprocessing_parameters, backe
         # Distinct values are sorted in reverse to mirror the selection of the default fallback_true_label (in
         # binary_feature.get_feature_meta) for binary columns with unconventional boolean values, "human"/"bot".
         for v in sorted(distinct_values, reverse=True):
-            fallback_true_label = preprocessing_parameters.get("fallback_true_label", "true")
+            fallback_true_label = (
+                preprocessing_parameters["fallback_true_label"]
+                # By default, preprocessing_parameters.fallback_true_label is None.
+                if preprocessing_parameters["fallback_true_label"]
+                else "true"
+            )
             if strings_utils.str2bool(v, fallback_true_label) is False:
                 return v
         raise ValueError(
@@ -1461,7 +1465,7 @@ def handle_missing_values(dataset_cols, feature, preprocessing_parameters):
         dataset_cols[feature[COLUMN]] = dataset_cols[feature[COLUMN]].fillna(
             computed_fill_value,
         )
-    elif missing_value_strategy in {BACKFILL, BFILL, PAD, FFILL}:
+    elif missing_value_strategy in {BFILL, FFILL}:
         dataset_cols[feature[COLUMN]] = dataset_cols[feature[COLUMN]].fillna(
             method=missing_value_strategy,
         )
@@ -1495,9 +1499,13 @@ def load_hdf5(hdf5_file_path, preprocessing_params, backend, split_data=True, sh
     return training_set, test_set, validation_set
 
 
-def load_metadata(metadata_file_path):
+def load_metadata(metadata_file_path: str) -> Dict[str, Any]:
     logging.info(f"Loading metadata from: {metadata_file_path}")
-    return data_utils.load_json(metadata_file_path)
+    training_set_metadata = data_utils.load_json(metadata_file_path)
+    # TODO(travis): decouple config from training_set_metadata so we don't need to
+    #  upgrade it over time.
+    training_set_metadata = upgrade_metadata(training_set_metadata)
+    return training_set_metadata
 
 
 def preprocess_for_training(

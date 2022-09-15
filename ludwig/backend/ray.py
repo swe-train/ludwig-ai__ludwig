@@ -32,6 +32,7 @@ from pyarrow.fs import FSSpecHandler, PyFileSystem
 from ray import ObjectRef
 from ray.data.dataset_pipeline import DatasetPipeline
 from ray.util.dask import ray_dask_get
+from ray.util.placement_group import placement_group, remove_placement_group
 
 if TYPE_CHECKING:
     from ludwig.api import LudwigModel
@@ -72,9 +73,8 @@ if _ray112:
     from ludwig.backend._ray112_compat import HorovodConfig
 else:
     from ray.train.horovod import HorovodConfig
-
-
 RAY_DEFAULT_PARALLELISM = 200
+FIFTEEN_MINS_IN_S = 15 * 60
 
 
 # TODO: deprecated v0.5
@@ -767,8 +767,7 @@ class RayPredictor(BasePredictor):
 
             def __call__(self, df: pd.DataFrame) -> pd.DataFrame:
                 dataset = self._prepare_batch(df)
-                predictions = self.predict(batch=dataset)
-
+                predictions = self.predict(batch=dataset).set_index(df.index)
                 for output_feature in self.model.output_features.values():
                     predictions = output_feature.flatten(predictions)
                 ordered_predictions = predictions[self.output_columns]
@@ -794,12 +793,15 @@ class RayPredictor(BasePredictor):
 
 
 class RayBackend(RemoteTrainingMixin, Backend):
+    BACKEND_TYPE = "ray"
+
     def __init__(
         self,
         processor=None,
         trainer=None,
         loader=None,
         use_legacy=False,
+        preprocessor_kwargs=None,
         hyperopt_sync_dir: Optional[str] = None,
         hyperopt_sync_credentials: Optional[Union[str, dict]] = None,
         **kwargs,
@@ -810,23 +812,58 @@ class RayBackend(RemoteTrainingMixin, Backend):
             hyperopt_sync_credentials=hyperopt_sync_credentials,
             **kwargs,
         )
+        self._preprocessor_kwargs = preprocessor_kwargs or {}
         self._df_engine = _get_df_engine(processor)
         self._horovod_kwargs = trainer or {}
         self._pytorch_kwargs = {}
         self._data_loader_kwargs = loader or {}
         self._use_legacy = use_legacy
+        self._preprocessor_pg = None
 
     def initialize(self):
-        if not ray.is_initialized():
-            try:
-                ray.init("auto", ignore_reinit_error=True)
-            except ConnectionError:
-                logger.info("Initializing new Ray cluster...")
-                ray.init(ignore_reinit_error=True)
+        initialize_ray()
 
         dask.config.set(scheduler=ray_dask_get)
         # Disable placement groups on dask
         dask.config.set(annotations={"ray_remote_args": {"placement_group": None}})
+
+    @contextlib.contextmanager
+    def provision_preprocessing_workers(self):
+        if not self._preprocessor_kwargs.get("use_preprocessing_placement_group", False):
+            logger.warning(
+                "Backend config has use_preprocessing_placement_group set to False or did not set it at all."
+                " provision_preprocessing_workers() is a no-op in this case."
+            )
+            yield
+        else:
+            num_cpu = self._preprocessor_kwargs["num_cpu_workers"]
+            self._preprocessor_pg = placement_group([{"CPU": num_cpu}])
+            ready = self._preprocessor_pg.wait(FIFTEEN_MINS_IN_S)
+
+            if not ready:
+                remove_placement_group(self._preprocessor_pg)
+                raise TimeoutError(
+                    "Ray timed out in provisioning the placement group for preprocessing."
+                    f" {num_cpu} CPUs were requested but were unable to be provisioned."
+                )
+
+            logger.info("%s CPUs were requested and successfully provisioned", num_cpu)
+            try:
+                with dask.config.set(annotations={"ray_remote_args": {"placement_group": self._preprocessor_pg}}):
+                    yield
+            finally:
+                self._release_preprocessing_workers()
+
+    def _release_preprocessing_workers(self):
+        if not self._preprocessor_kwargs.get("use_preprocessing_placement_group", False):
+            logger.warning(
+                "Backend config has use_preprocessing_placement_group set to False or did not set it at all."
+                " _release_preprocessing_workers() is a no-op in this case."
+            )
+            return
+        if self._preprocessor_pg is not None:
+            remove_placement_group(self._preprocessor_pg)
+        self._preprocessor_pg = None
 
     def initialize_pytorch(self, **kwargs):
         # Make sure we don't claim any GPU resources on the head node
@@ -959,3 +996,16 @@ class RayBackend(RemoteTrainingMixin, Backend):
         if not ray.is_initialized():
             return 1
         return len(ray.nodes())
+
+
+def initialize_ray():
+    if not ray.is_initialized():
+        try:
+            ray.init("auto", ignore_reinit_error=True)
+        except ConnectionError:
+            init_ray_local()
+
+
+def init_ray_local():
+    logger.info("Initializing new Ray cluster...")
+    ray.init(ignore_reinit_error=True)

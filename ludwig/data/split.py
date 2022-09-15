@@ -22,6 +22,7 @@ from sklearn.model_selection import train_test_split
 
 from ludwig.backend.base import Backend
 from ludwig.constants import BINARY, CATEGORY, COLUMN, DATE, SPLIT, TYPE
+from ludwig.schema.split import DateTimeSplitConfig, FixedSplitConfig, RandomSplitConfig, StratifySplitConfig
 from ludwig.utils.data_utils import split_dataset_ttv
 from ludwig.utils.registry import Registry
 from ludwig.utils.types import DataFrame
@@ -79,6 +80,10 @@ class RandomSplitter(Splitter):
     def has_split(self, split_index: int) -> bool:
         return self.probabilities[split_index] > 0
 
+    @staticmethod
+    def get_schema_cls():
+        return RandomSplitConfig
+
 
 @split_registry.register("fixed")
 class FixedSplitter(Splitter):
@@ -97,6 +102,34 @@ class FixedSplitter(Splitter):
     def required_columns(self) -> List[str]:
         return [self.column]
 
+    @staticmethod
+    def get_schema_cls():
+        return FixedSplitConfig
+
+
+def stratify_split_dataframe(
+    df: DataFrame, column: str, probabilities: List[float], random_seed: float
+) -> Tuple[DataFrame, DataFrame, DataFrame]:
+    """Splits a dataframe into train, validation, and test sets based on the values of a column.
+
+    The column must be categorical (including binary). The split is stratified, meaning that the proportion of each
+    category in each split is the same as in the original dataset.
+    """
+    frac_train, frac_val, frac_test = probabilities
+
+    # Dataframe of just the column on which to stratify
+    y = df[[column]].astype(np.int8)
+    df_train, df_temp, _, y_temp = train_test_split(
+        df, y, stratify=y, test_size=(1.0 - frac_train), random_state=random_seed
+    )
+    # Split the temp dataframe into val and test dataframes.
+    relative_frac_test = frac_test / (frac_val + frac_test)
+    df_val, df_test, _, _ = train_test_split(
+        df_temp, y_temp, stratify=y_temp, test_size=relative_frac_test, random_state=random_seed
+    )
+
+    return df_train, df_val, df_test
+
 
 @split_registry.register("stratify")
 class StratifySplitter(Splitter):
@@ -107,22 +140,30 @@ class StratifySplitter(Splitter):
     def split(
         self, df: DataFrame, backend: Backend, random_seed: float = default_random_seed
     ) -> Tuple[DataFrame, DataFrame, DataFrame]:
-        if backend.df_engine.partitioned:
-            # TODO dask: find a way to support this method
-            raise ValueError('Split type "stratify" is not supported with a partitioned dataset.')
+        if not backend.df_engine.partitioned:
+            return stratify_split_dataframe(df, self.column, self.probabilities, random_seed)
 
-        frac_train, frac_val, frac_test = self.probabilities
+        # For a partitioned dataset, we can stratify split each partition individually
+        # to obtain a global stratified split.
 
-        # Dataframe of just the column on which to stratify
-        y = df[[self.column]].astype(np.int8)
-        df_train, df_temp, _, y_temp = train_test_split(
-            df, y, stratify=y, test_size=(1.0 - frac_train), random_state=random_seed
-        )
-        # Split the temp dataframe into val and test dataframes.
-        relative_frac_test = frac_test / (frac_val + frac_test)
-        df_val, df_test, _, _ = train_test_split(
-            df_temp, y_temp, stratify=y_temp, test_size=relative_frac_test, random_state=random_seed
-        )
+        def split_partition(partition: DataFrame) -> DataFrame:
+            """Splits a single partition into train, val, test.
+
+            Returns a single DataFrame with the split column populated. Assumes that the split column is already present
+            in the partition and has a default value of 0 (train).
+            """
+            _, val, test = stratify_split_dataframe(partition, self.column, self.probabilities, random_seed)
+            # Split column defaults to train, so only need to update val and test
+            partition.loc[val.index, TMP_SPLIT_COL] = 1
+            partition.loc[test.index, TMP_SPLIT_COL] = 2
+            return partition
+
+        df[TMP_SPLIT_COL] = 0
+        df = backend.df_engine.map_partitions(df, split_partition, meta=df)
+
+        df_train = df[df[TMP_SPLIT_COL] == 0].drop(columns=TMP_SPLIT_COL)
+        df_val = df[df[TMP_SPLIT_COL] == 1].drop(columns=TMP_SPLIT_COL)
+        df_test = df[df[TMP_SPLIT_COL] == 2].drop(columns=TMP_SPLIT_COL)
 
         return df_train, df_val, df_test
 
@@ -143,6 +184,10 @@ class StratifySplitter(Splitter):
     @property
     def required_columns(self) -> List[str]:
         return [self.column]
+
+    @staticmethod
+    def get_schema_cls():
+        return StratifySplitConfig
 
 
 @split_registry.register("datetime")
@@ -201,6 +246,10 @@ class DatetimeSplitter(Splitter):
     @property
     def required_columns(self) -> List[str]:
         return [self.column]
+
+    @staticmethod
+    def get_schema_cls():
+        return DateTimeSplitConfig
 
 
 def get_splitter(type: Optional[str] = None, **kwargs) -> Splitter:

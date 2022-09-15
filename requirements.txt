@@ -10,14 +10,14 @@ torch>=1.10.0
 torchaudio
 torchtext
 torchvision>=0.10.1
-transformers>=4.10.1
+transformers>=4.10.1,<4.22
 spacy>=2.3
 PyYAML>=3.12
 absl-py
 kaggle
 requests
 tables
-fsspec[http]
+fsspec[http]<2022.8
 dataclasses-json
 jsonschema>=4.5.0,<4.7
 marshmallow

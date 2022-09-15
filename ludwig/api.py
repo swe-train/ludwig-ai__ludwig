@@ -35,7 +35,7 @@ import pandas as pd
 import torch
 from tabulate import tabulate
 
-from ludwig.backend import Backend, initialize_backend
+from ludwig.backend import Backend, initialize_backend, provision_preprocessing_workers
 from ludwig.callbacks import Callback
 from ludwig.constants import (
     AUTO,
@@ -46,6 +46,7 @@ from ludwig.constants import (
     HYPEROPT,
     HYPEROPT_WARNING,
     LEARNING_RATE,
+    MIN_VALIDATION_SET_ROWS,
     MODEL_TYPE,
     PREPROCESSING,
     TEST,
@@ -213,10 +214,13 @@ class LudwigModel:
             config_dict = copy.deepcopy(config)
             self.config_fp = None
 
+        self.base_config = config_dict
+
         # Upgrades deprecated fields and adds new required fields in case the config loaded from disk is old.
-        self.base_config = upgrade_to_latest_version(config_dict)
+        upgraded_config = upgrade_to_latest_version(config_dict)
+
         # Merge upgraded config with defaults.
-        self.config = merge_with_defaults(copy.deepcopy(self.base_config))
+        self.config = merge_with_defaults(upgraded_config)
         validate_config(self.config)
 
         # setup logging
@@ -569,15 +573,22 @@ class LudwigModel:
                             self.backend,
                             batch_size=trainer.eval_batch_size,
                         )
-                        if validation_set is not None:
-                            # Use backend.createPredictor to ensure we get ray predictor with ray backend
-                            calibrator.train_calibration(validation_set, VALIDATION)
-                        else:
+                        if validation_set is None:
                             logger.warning(
-                                "Calibration uses validation set, but not validation split specified. "
+                                "Calibration uses validation set, but no validation split specified."
                                 "Will use training set for calibration."
+                                "Recommend providing a validation set when using calibration."
                             )
                             calibrator.train_calibration(training_set, TRAINING)
+                        elif len(validation_set) < MIN_VALIDATION_SET_ROWS:
+                            logger.warning(
+                                f"Validation set size ({len(validation_set)} rows) is too small for calibration."
+                                "Will use training set for calibration."
+                                f"Validation set much have at least {MIN_VALIDATION_SET_ROWS} rows."
+                            )
+                            calibrator.train_calibration(training_set, TRAINING)
+                        else:
+                            calibrator.train_calibration(validation_set, VALIDATION)
                         if not skip_save_model:
                             self.model.save(model_dir)
 
@@ -669,17 +680,18 @@ class LudwigModel:
             self.config.get(PREPROCESSING, {}), self.config.get(DEFAULTS, {})
         )
 
-        training_dataset, _, _, training_set_metadata = preprocess_for_training(
-            self.config,
-            training_set=dataset,
-            training_set_metadata=training_set_metadata,
-            data_format=data_format,
-            skip_save_processed_input=True,
-            preprocessing_params=preprocessing_params,
-            backend=self.backend,
-            random_seed=random_seed,
-            callbacks=self.callbacks,
-        )
+        with provision_preprocessing_workers(self.backend):
+            training_dataset, _, _, training_set_metadata = preprocess_for_training(
+                self.config,
+                training_set=dataset,
+                training_set_metadata=training_set_metadata,
+                data_format=data_format,
+                skip_save_processed_input=True,
+                preprocessing_params=preprocessing_params,
+                backend=self.backend,
+                random_seed=random_seed,
+                callbacks=self.callbacks,
+            )
 
         if not self.training_set_metadata:
             self.training_set_metadata = training_set_metadata
@@ -1283,20 +1295,21 @@ class LudwigModel:
             self.config.get(PREPROCESSING, {}), self.config.get(DEFAULTS, {})
         )
 
-        preprocessed_data = preprocess_for_training(
-            self.config,
-            dataset=dataset,
-            training_set=training_set,
-            validation_set=validation_set,
-            test_set=test_set,
-            training_set_metadata=training_set_metadata,
-            data_format=data_format,
-            skip_save_processed_input=skip_save_processed_input,
-            preprocessing_params=preprocessing_params,
-            backend=self.backend,
-            random_seed=random_seed,
-            callbacks=self.callbacks,
-        )
+        with provision_preprocessing_workers(self.backend):
+            preprocessed_data = preprocess_for_training(
+                self.config,
+                dataset=dataset,
+                training_set=training_set,
+                validation_set=validation_set,
+                test_set=test_set,
+                training_set_metadata=training_set_metadata,
+                data_format=data_format,
+                skip_save_processed_input=skip_save_processed_input,
+                preprocessing_params=preprocessing_params,
+                backend=self.backend,
+                random_seed=random_seed,
+                callbacks=self.callbacks,
+            )
 
         (proc_training_set, proc_validation_set, proc_test_set, training_set_metadata) = preprocessed_data
 
@@ -1355,11 +1368,6 @@ class LudwigModel:
         )
 
         config = backend.broadcast_return(lambda: load_json(os.path.join(model_dir, MODEL_HYPERPARAMETERS_FILE_NAME)))
-
-        if "ludwig_version" not in config:
-            # Configs saved with 0.5 and above should have "ludwig_version" key, so if the config has none then assume
-            # it was saved by an older version of Ludwig and run all upgrades.
-            config["ludwig_version"] = "0.4"
 
         # Upgrades deprecated fields and adds new required fields in case the config loaded from disk is old.
         config = upgrade_to_latest_version(config)
