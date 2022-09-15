@@ -33,8 +33,9 @@ class RemoteSyncer(_BackgroundSyncer):
                 dict(uri=uri),
             )
 
-    # Custom deserialization needed since we can't pickle thread.lock objects
     def __reduce__(self):
+        """We need this custom serialization because we can't pickle thread.lock objects that are used by the
+        use_credentials context manager."""
         deserializer = RemoteSyncer
         serialized_data = (self.sync_period, self.backend)
         return deserializer, serialized_data
