@@ -8,7 +8,7 @@ from ludwig.utils.data_utils import use_credentials
 
 
 class RemoteSyncer(_BackgroundSyncer):
-    def __init__(self, backend: Backend, sync_period: float = 300.0):
+    def __init__(self, sync_period: float = 300.0, backend: Backend = None):
         super().__init__(sync_period=sync_period)
         self.backend = backend
 
@@ -32,3 +32,9 @@ class RemoteSyncer(_BackgroundSyncer):
                 delete_at_uri,
                 dict(uri=uri),
             )
+
+    # Custom deserialization needed since we can't pickle thread.lock objects
+    def __reduce__(self):
+        deserializer = RemoteSyncer
+        serialized_data = (self.sync_period, self.backend)
+        return deserializer, serialized_data
