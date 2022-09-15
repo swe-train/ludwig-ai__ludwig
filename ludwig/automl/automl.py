@@ -69,6 +69,10 @@ class AutoTrainResults:
         return self._experiment_analysis
 
     @property
+    def best_trial(self):
+        return self._experiment_analysis.best_trial
+
+    @property
     def best_trial_id(self) -> str:
         return self._experiment_analysis.best_trial.trial_id
 
