@@ -942,13 +942,11 @@ class RayTuneExecutor:
             logger.warning("No trials reported results; check if time budget is lower than epoch latency.")
             ordered_trials = []
 
-        # Remove temporary trials directory if it exists
-        print("Cleanup temporary remote directory if it exists")
+        # Remove temporary trials directory if it was created during syncing through RayTuneReportCallback
         if has_remote_protocol(output_directory):
             with use_credentials(backend.hyperopt_sync_manager.credentials):
                 tmp_remote_dir_path = os.path.join(backend.hyperopt_sync_manager.sync_dir, "tmp", experiment_name)
                 if path_exists(tmp_remote_dir_path):
-                    print(f"{tmp_remote_dir_path} exists, deleting")
                     delete(tmp_remote_dir_path, recursive=True)
 
         return HyperoptResults(ordered_trials=ordered_trials, experiment_analysis=analysis)
