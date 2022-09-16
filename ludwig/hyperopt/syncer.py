@@ -35,7 +35,10 @@ class RemoteSyncer(_BackgroundSyncer):
 
     def __reduce__(self):
         """We need this custom serialization because we can't pickle thread.lock objects that are used by the
-        use_credentials context manager."""
+        use_credentials context manager.
+
+        https://docs.ray.io/en/latest/ray-core/objects/serialization.html#customized-serialization
+        """
         deserializer = RemoteSyncer
         serialized_data = (self.sync_period, self.backend)
         return deserializer, serialized_data
