@@ -10,22 +10,23 @@ from ludwig.datasets import adult_census_income
 
 shutil.rmtree("./results", ignore_errors=True)
 
-backend_config = {
-    "type": "ray",
-    "processor": {
-        "parallelism": 6,
-        "type": "dask",
-    },
-    "trainer": {
-        "use_gpu": False,
-        "num_workers": 3,
-        "resources_per_worker": {
-            "CPU": 2,
-            "GPU": 0,
-        },
-    },
-}
-backend = initialize_backend(backend_config)
+# backend_config = {
+#     "type": "ray",
+#     "processor": {
+#         "parallelism": 6,
+#         "type": "dask",
+#     },
+#     "trainer": {
+#         "use_gpu": False,
+#         "num_workers": 3,
+#         "resources_per_worker": {
+#             "CPU": 2,
+#             "GPU": 0,
+#         },
+#     },
+# }
+# backend = initialize_backend(backend_config)
+backend = "local"
 model = LudwigModel(config="./config.yaml", logging_level=logging.INFO, backend=backend)
 
 df = adult_census_income.load(split=False)
@@ -38,6 +39,13 @@ df = adult_census_income.load(split=False)
     dataset=df,
     skip_save_processed_input=True,
 )
+
+# from ludwig.explain.gbm import GBMExplainer
+from ludwig.explain.captum import IntegratedGradientsExplainer
+
+explainer = IntegratedGradientsExplainer(model, df[:100], df[:100], "income")
+explanations, _ = explainer.explain()
+print(explanations[0])
 
 print("contents of output directory:", output_directory)
 for item in os.listdir(output_directory):

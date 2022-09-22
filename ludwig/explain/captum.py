@@ -1,3 +1,4 @@
+import types
 from typing import List, Tuple
 
 import numpy as np
@@ -7,11 +8,11 @@ from captum.attr import IntegratedGradients
 from torch.autograd import Variable
 
 from ludwig.api import LudwigModel
-from ludwig.constants import BINARY, CATEGORY, TYPE
 from ludwig.data.preprocessing import preprocess_for_prediction
 from ludwig.explain.base import Explainer
 from ludwig.explain.util import Explanation, get_pred_col
 from ludwig.models.ecd import ECD
+from ludwig.models.gbm import GBM
 from ludwig.utils.torch_utils import get_torch_device
 
 DEVICE = get_torch_device()
@@ -79,8 +80,14 @@ def get_input_tensors(model: LudwigModel, input_set: pd.DataFrame) -> List[Varia
     )
 
     # Convert dataset into a dict of tensors, and split each tensor into batches to control GPU memory usage
+    trainer_config = model.config["trainer"]
+    split_size = (
+        model.config["trainer"]["batch_size"]
+        if "batch_size" in trainer_config
+        else model.config["trainer"]["eval_batch_size"]
+    )
     inputs = {
-        name: torch.from_numpy(dataset.dataset[feature.proc_column]).split(model.config["trainer"]["batch_size"])
+        name: torch.from_numpy(dataset.dataset[feature.proc_column]).split(split_size)
         for name, feature in model.model.input_features.items()
     }
 
@@ -123,6 +130,37 @@ class IntegratedGradientsExplainer(Explainer):
             `expected_values`: (List[float]) of length [output feature cardinality] Average convergence delta for each
             label in the target feature's vocab.
         """
+        # Stub model if needed
+        if isinstance(self.model.model, GBM):
+            model = self.model.model
+
+            def encode(self, inputs):
+                # Convert inputs to tensors.
+                for input_feature_name, input_values in inputs.items():
+                    if not isinstance(input_values, torch.Tensor):
+                        inputs[input_feature_name] = torch.from_numpy(input_values)
+                    else:
+                        inputs[input_feature_name] = input_values
+
+                encoder_outputs = {}
+                for input_feature_name, input_values in inputs.items():
+                    encoder_output = {"encoder_output": input_values.float()}
+                    encoder_outputs[input_feature_name] = encoder_output
+
+                return encoder_outputs
+
+            def combine(self, encoded_inputs):
+                encoder_outputs = {k: v["encoder_output"] for k, v in encoded_inputs.items()}
+                return encoder_outputs
+
+            def decode(self, combined_outputs, *args, **kwargs):
+                return model(combined_outputs)
+
+            # Add stub methods to the model so it conforms to the ECD interface.
+            model.encode = types.MethodType(encode, model)
+            model.combine = types.MethodType(combine, model)
+            model.decode = types.MethodType(decode, model)
+
         # Convert input data into embedding tensors from the output of the model encoders.
         inputs_encoded = get_input_tensors(self.model, self.inputs_df)
         sample_encoded = get_input_tensors(self.model, self.sample_df)
@@ -138,12 +176,17 @@ class IntegratedGradientsExplainer(Explainer):
 
         # Compute attribution for each possible output feature label separately.
         expected_values = []
+        batch_size = (
+            self.model.config["trainer"]["batch_size"]
+            if "batch_size" in self.model.config["trainer"]
+            else self.model.config["trainer"]["eval_batch_size"]
+        )
         for target_idx in range(self.vocab_size):
             attribution, delta = explainer.attribute(
                 tuple(inputs_encoded),
                 baselines=tuple(baseline),
                 target=target_idx if self.is_category_target else None,
-                internal_batch_size=self.model.config["trainer"]["batch_size"],
+                internal_batch_size=batch_size,
                 return_convergence_delta=True,
             )
 
