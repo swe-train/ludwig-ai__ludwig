@@ -16,10 +16,9 @@ import contextlib
 import logging
 import os.path
 
-import mlflow
+# import mlflow
 import pandas as pd
 import pytest
-from mlflow.tracking import MlflowClient
 
 from ludwig.constants import ACCURACY, TRAINER
 from ludwig.contribs import MlflowCallback
@@ -28,6 +27,9 @@ from ludwig.hyperopt.results import HyperoptResults
 from ludwig.hyperopt.run import hyperopt, update_hyperopt_params_with_defaults
 from ludwig.utils.defaults import merge_with_defaults
 from tests.integration_tests.utils import category_feature, generate_data, text_feature
+
+# from mlflow.tracking import MlflowClient
+
 
 try:
     import ray
@@ -198,7 +200,7 @@ def test_hyperopt_executor_with_metric(use_split, csv_filename, tmpdir, ray_clus
 
 @pytest.mark.distributed
 @pytest.mark.parametrize("backend", ["local", "ray"])
-def test_hyperopt_run_hyperopt(csv_filename, backend, tmpdir, ray_cluster_4cpu):
+def test_hyperopt_run_hyperopt(csv_filename, backend):
     input_features = [
         text_feature(name="utterance", encoder={"cell_type": "lstm", "reduce_output": "sum"}),
         category_feature(encoder={"vocab_size": 2}, reduce_input="sum"),
@@ -207,6 +209,7 @@ def test_hyperopt_run_hyperopt(csv_filename, backend, tmpdir, ray_cluster_4cpu):
     output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
 
     rel_path = generate_data(input_features, output_features, csv_filename)
+    rel_path = pd.read_csv(rel_path)
 
     config = {
         "input_features": input_features,
@@ -233,13 +236,13 @@ def test_hyperopt_run_hyperopt(csv_filename, backend, tmpdir, ray_cluster_4cpu):
         "goal": "minimize",
         "output_feature": output_feature_name,
         "validation_metrics": "loss",
-        "executor": {"type": "ray", "num_samples": 2},
+        "executor": {"type": "ray", "num_samples": 2, "cpu_resources_per_trial": 2},
         "search_alg": {"type": "variant_generator"},
     }
 
     # add hyperopt parameter space to the config
     config["hyperopt"] = hyperopt_configs
-    run_hyperopt(config, rel_path, tmpdir)
+    run_hyperopt(config, rel_path, ".")
 
 
 @pytest.mark.distributed

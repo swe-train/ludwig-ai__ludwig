@@ -309,7 +309,7 @@ def hyperopt(
     for callback in callbacks or []:
         callback.on_hyperopt_init(experiment_name)
 
-    if not should_tune_preprocessing(config):
+    if False and not should_tune_preprocessing(config):
         # preprocessing is not being tuned, so generate it once before starting trials
         for callback in callbacks or []:
             callback.on_hyperopt_preprocessing_start(experiment_name)

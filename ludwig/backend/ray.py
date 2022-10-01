@@ -24,6 +24,7 @@ import dask
 import numpy as np
 import pandas as pd
 import ray
+import ray.data.context
 import torch
 import tqdm
 from fsspec.config import conf
@@ -169,16 +170,25 @@ def train_fn(
     features: Dict[str, Dict] = None,
     **kwargs,
 ):
+    from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
+
+    print(f"!!! TRAIN_FN {ray.util.get_current_placement_group()}")
+    ray.data.context.DatasetContext.get_current().scheduling_strategy = PlacementGroupSchedulingStrategy(
+        placement_group=ray.util.get_current_placement_group()
+    )
+
     # Pin GPU before loading the model to prevent memory leaking onto other devices
     hvd = initialize_horovod()
     try:
         initialize_pytorch(horovod=hvd)
 
+        print("!!! GET TRAIN SHARD")
         train_shard = RayDatasetShard(
             rt.get_dataset_shard("train"),
             features,
             training_set_metadata,
         )
+        print("!!! TRAIN SHARD")
 
         try:
             val_shard = rt.get_dataset_shard("val")
@@ -191,6 +201,7 @@ def train_fn(
                 features,
                 training_set_metadata,
             )
+        print("!!! VAL SHARD")
 
         try:
             test_shard = rt.get_dataset_shard("test")
@@ -203,6 +214,7 @@ def train_fn(
                 features,
                 training_set_metadata,
             )
+        print("!!! TEST SHARD")
 
         model = ray.get(model_ref)
         device = get_torch_device()
@@ -810,8 +822,10 @@ class RayBackend(RemoteTrainingMixin, Backend):
         initialize_ray()
 
         dask.config.set(scheduler=ray_dask_get)
+        print(f"!!! INIT RAY {ray.util.get_current_placement_group()}")
         # Disable placement groups on dask
-        dask.config.set(annotations={"ray_remote_args": {"placement_group": None}})
+        dask.config.set(annotations={"ray_remote_args": {"placement_group": ray.util.get_current_placement_group()}})
+        ray.data.context.DatasetContext.get_current().scheduling_strategy = None
 
     def generate_bundles(self, num_cpu):
         # Ray requires that each bundle be scheduleable on a single node.
@@ -992,7 +1006,10 @@ class RayBackend(RemoteTrainingMixin, Backend):
 def initialize_ray():
     if not ray.is_initialized():
         try:
-            ray.init("auto", ignore_reinit_error=True)
+            print("!!! INIT RAY !!!")
+            import uuid
+
+            ray.init("auto", ignore_reinit_error=True, runtime_env={"env_vars": {"runid": uuid.uuid4().hex}})
         except ConnectionError:
             init_ray_local()
 

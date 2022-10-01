@@ -32,6 +32,97 @@ TMP_COLUMN = "__TMP_COLUMN__"
 logger = logging.getLogger(__name__)
 
 
+def from_pandas_refs(dfs):
+    """Create a dataset from a list of Ray object references to Pandas dataframes.
+
+    Args:
+        dfs: A Ray object references to pandas dataframe, or a list of
+             Ray object references to pandas dataframes.
+
+    Returns:
+        Dataset holding Arrow records read from the dataframes.
+    """
+    import ray
+    from ray.data._internal.block_list import BlockList
+    from ray.data._internal.plan import ExecutionPlan
+    from ray.data._internal.remote_fn import cached_remote_fn
+    from ray.data._internal.stats import DatasetStats
+    from ray.data.context import DatasetContext
+    from ray.data.dataset import Dataset
+    from ray.data.read_api import _df_to_block, _get_metadata
+    from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
+
+    if isinstance(dfs, ray.ObjectRef):
+        dfs = [dfs]
+    elif isinstance(dfs, list):
+        for df in dfs:
+            if not isinstance(df, ray.ObjectRef):
+                raise ValueError("Expected list of Ray object refs, " f"got list containing {type(df)}")
+    else:
+        raise ValueError("Expected Ray object ref or list of Ray object refs, " f"got {type(df)}")
+
+    scheduling_strategy = PlacementGroupSchedulingStrategy(placement_group=ray.util.get_current_placement_group())
+
+    context = DatasetContext.get_current()
+    if context.enable_pandas_block:
+        get_metadata = cached_remote_fn(_get_metadata, scheduling_strategy=scheduling_strategy)
+        metadata = ray.get([get_metadata.remote(df) for df in dfs])
+        return Dataset(
+            ExecutionPlan(
+                BlockList(dfs, metadata, owned_by_consumer=False),
+                DatasetStats(stages={"from_pandas_refs": metadata}, parent=None),
+                run_by_consumer=False,
+            ),
+            0,
+            False,
+        )
+
+    df_to_block = cached_remote_fn(_df_to_block, num_returns=2, scheduling_strategy=scheduling_strategy)
+
+    res = [df_to_block.remote(df) for df in dfs]
+    blocks, metadata = map(list, zip(*res))
+    metadata = ray.get(metadata)
+    return Dataset(
+        ExecutionPlan(
+            BlockList(blocks, metadata, owned_by_consumer=False),
+            DatasetStats(stages={"from_pandas_refs": metadata}, parent=None),
+            run_by_consumer=False,
+        ),
+        0,
+        False,
+    )
+
+
+def from_dask(df: "dask.DataFrame"):
+    """Create a dataset from a Dask DataFrame.
+
+    Args:
+        df: A Dask DataFrame.
+
+    Returns:
+        Dataset holding Arrow records read from the DataFrame.
+    """
+    import dask
+    import ray
+    from ray.util.dask import ray_dask_get
+
+    partitions = df.to_delayed()
+    persisted_partitions = dask.persist(*partitions, scheduler=ray_dask_get, optimize_graph=False)
+
+    import pandas
+
+    def to_ref(df):
+        if isinstance(df, pandas.DataFrame):
+            return ray.put(df)
+        elif isinstance(df, ray.ObjectRef):
+            return df
+        else:
+            raise ValueError("Expected a Ray object ref or a Pandas DataFrame, " f"got {type(df)}")
+
+    print("!!! FROM PANDAS REFS")
+    return from_pandas_refs([to_ref(next(iter(part.dask.values()))) for part in persisted_partitions])
+
+
 def set_scheduler(scheduler):
     dask.config.set(scheduler=scheduler)
 
@@ -138,9 +229,7 @@ class DaskEngine(DataFrameEngine):
         return series.map_partitions(map_fn, meta=meta)
 
     def map_batches(self, series, map_fn):
-        import ray.data
-
-        ds = ray.data.from_dask(series)
+        ds = from_dask(series)
         ds = ds.map_batches(map_fn, batch_format="pandas")
         return ds.to_dask()
 
@@ -196,8 +285,6 @@ class DaskEngine(DataFrameEngine):
             )
 
     def to_ray_dataset(self, df):
-        from ray.data import from_dask
-
         return from_dask(df)
 
     def from_ray_dataset(self, dataset) -> dd.DataFrame:

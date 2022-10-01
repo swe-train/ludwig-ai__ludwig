@@ -433,6 +433,8 @@ class RayTuneExecutor:
         decode_ctx,
         is_using_ray_backend=False,
     ):
+        print("!!! _RUN_EXPERIMENT")
+
         for gpu_id in ray.get_gpu_ids():
             # Previous trial may not have freed its memory yet, so wait to avoid OOM
             wait_for_gpu(gpu_id)
@@ -502,6 +504,7 @@ class RayTuneExecutor:
                 checkpoint(progress_tracker, save_path)
 
             def on_train_start(self, model, config: Dict[str, Any], config_fp: Union[str, None]):
+                print(f"!!! ON TRAIN START {ray.util.get_current_placement_group()}")
                 if is_using_ray_backend and checkpoint_dir:
                     # When using the Ray backend and resuming from a previous checkpoint, we must sync
                     # the checkpoint files from the trial driver to the trainer worker.
@@ -509,6 +512,7 @@ class RayTuneExecutor:
                     self.resume_ckpt_ref = resume_ckpt.to_object_ref()
 
             def on_trainer_train_setup(self, trainer, save_path, is_coordinator):
+                print(f"!!! ON TRAINER TRAIN SETUP {ray.util.get_current_placement_group()}")
                 if self.resume_ckpt_ref is not None and driver_trial_location != ray.util.get_node_ip_address():
                     # The resume checkpoint is not None, so we are resuming from a previous state, and the
                     # node of the trainer worker is not the same as the trial driver, otherwise the files would
@@ -548,10 +552,11 @@ class RayTuneExecutor:
                 "num_workers": int(num_gpus) if use_gpu else 1,
                 "use_gpu": use_gpu,
                 "resources_per_worker": {
-                    "CPU": num_cpus,
+                    "CPU": 1,
                     "GPU": 1 if use_gpu else 0,
                 },
             }
+            print(f"!!! HVD_KWARGS: {hvd_kwargs}")
             hyperopt_dict["backend"].set_distributed_kwargs(**hvd_kwargs)
 
             logger.debug(f"Trial horovod kwargs: {hvd_kwargs}")
@@ -728,6 +733,7 @@ class RayTuneExecutor:
         }
 
         def run_experiment_trial(config, local_hyperopt_dict, checkpoint_dir=None):
+            print("!!! RUN EXPERIMENT TRIAL !!!")
             return self._run_experiment(
                 config,
                 checkpoint_dir,
