@@ -72,6 +72,6 @@
     {
         "column": "income",
         "name": "income",
-        "type": "category"
+        "type": "binary"
     }
 ]
