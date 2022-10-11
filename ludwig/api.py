@@ -358,7 +358,7 @@ class LudwigModel:
             logger.info(HYPEROPT_WARNING)
 
         # setup directories and file names
-        artifact_fs = self.backend.credentials.artifacts.fs
+        artifact_fs = self.backend.storage.artifacts.fs
         if model_resume_path is not None:
             if artifact_fs.path_exists(model_resume_path):
                 output_directory = model_resume_path
@@ -384,7 +384,7 @@ class LudwigModel:
             and skip_save_processed_input
         )
 
-        artifact_fs = self.backend.credentials.artifacts.fs
+        artifact_fs = self.backend.storage.artifacts.fs
         output_url = output_directory
         with artifact_fs.upload_output_directory(output_directory) as (output_directory, upload_fn):
             train_callbacks = self.callbacks
@@ -774,7 +774,7 @@ class LudwigModel:
         )
 
         logger.debug("Predicting")
-        artifact_fs = self.backend.credentials.artifacts.fs
+        artifact_fs = self.backend.storage.artifacts.fs
         with self.backend.create_predictor(self.model, batch_size=batch_size) as predictor:
             predictions = predictor.batch_predict(
                 dataset,
@@ -892,7 +892,7 @@ class LudwigModel:
             batch_size = self.config[TRAINER][EVAL_BATCH_SIZE] or self.config[TRAINER][BATCH_SIZE]
 
         logger.debug("Predicting")
-        artifact_fs = self.backend.credentials.artifacts.fs
+        artifact_fs = self.backend.storage.artifacts.fs
         with self.backend.create_predictor(self.model, batch_size=batch_size) as predictor:
             eval_stats, predictions = predictor.batch_evaluation(
                 dataset,

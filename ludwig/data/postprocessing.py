@@ -71,7 +71,7 @@ def _save_as_numpy(predictions, output_directory, saved_keys, backend):
         k = k.replace("<", "[").replace(">", "]")  # Replace <UNK> and <PAD> with [UNK], [PAD]
         if k not in saved_keys:
             if has_remote_protocol(output_directory):
-                artifact_fs = backend.credentials.artifacts.fs
+                artifact_fs = backend.storage.artifacts.fs
                 with artifact_fs.open_file(npy_filename.format(make_safe_filename(k)), mode="wb") as f:
                     np.save(f, v)
             else:

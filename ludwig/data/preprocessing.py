@@ -562,7 +562,7 @@ class ParquetPreprocessor(DataFormatPreprocessor):
         backend=LOCAL_BACKEND,
         random_seed=default_random_seed,
     ):
-        cache_fs = backend.credentials.cache.fs
+        cache_fs = backend.storage.cache.fs
         test_set = test_set if test_set and cache_fs.path_exists(test_set) else None
         if test_set and isinstance(test_set, str) and DATA_TEST_PARQUET_FP not in training_set_metadata:
             training_set_metadata[DATA_TEST_PARQUET_FP] = test_set

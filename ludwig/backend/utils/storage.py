@@ -13,7 +13,7 @@ DATASETS = "datasets"
 CACHE = "cache"
 
 
-class Credentials:
+class Storage:
     def __init__(self, creds: Optional[Dict[str, Any]]):
         self._creds = creds
 
@@ -30,7 +30,7 @@ class Credentials:
         return self._creds
 
 
-class CredentialManager:
+class StorageManager:
     def __init__(
         self,
         defaults: CredInputs = None,
@@ -38,32 +38,34 @@ class CredentialManager:
         datasets: CredInputs = None,
         cache: CredInputs = None,
     ):
+        defaults = load_creds(defaults)
         cred_inputs = {
             DEFAULTS: defaults,
-            ARTIFACTS: artifacts,
-            DATASETS: datasets,
-            CACHE: cache,
+            ARTIFACTS: load_creds(artifacts),
+            DATASETS: load_creds(datasets),
+            CACHE: load_creds(cache),
         }
 
-        creds = {}
-        for k, v in cred_inputs.items():
-            if isinstance(v, str):
-                v = data_utils.load_json(v)
-            creds[k] = Credentials(v)
-        self.creds = cred_inputs
+        self.storages = {k: Storage(v if v is not None else defaults) for k, v in cred_inputs.items()}
 
     @property
-    def defaults(self) -> Credentials:
-        return self.creds[DEFAULTS]
+    def defaults(self) -> Storage:
+        return self.storages[DEFAULTS]
 
     @property
-    def artifacts(self) -> Credentials:
-        return self.creds[ARTIFACTS]
+    def artifacts(self) -> Storage:
+        return self.storages[ARTIFACTS]
 
     @property
-    def datasets(self) -> Credentials:
-        return self.creds[DATASETS]
+    def datasets(self) -> Storage:
+        return self.storages[DATASETS]
 
     @property
-    def cache(self) -> Credentials:
-        return self.creds[CACHE]
+    def cache(self) -> Storage:
+        return self.storages[CACHE]
+
+
+def load_creds(cred: CredInputs) -> Dict[str, Any]:
+    if isinstance(cred, str):
+        cred = data_utils.load_json(cred)
+    return cred

@@ -2,7 +2,7 @@ import logging
 import os
 from typing import Any, Dict, Optional
 
-from ludwig.backend.utils.credentials import Credentials
+from ludwig.backend.utils.storage import Storage
 from ludwig.constants import CHECKSUM, META, TEST, TRAINING, VALIDATION
 from ludwig.data.cache.types import alphanum, CacheableDataset
 from ludwig.data.cache.util import calculate_checksum
@@ -19,7 +19,7 @@ class DatasetCache:
         checksum: str,
         cache_map: Dict[str, Any],
         dataset_manager: DatasetManager,
-        cache_credentials: Credentials,
+        cache_credentials: Storage,
     ):
         self.config = config
         self.checksum = checksum
@@ -97,7 +97,7 @@ class CacheManager:
         self,
         dataset_manager: DatasetManager,
         cache_dir: Optional[str],
-        cache_credentials: Credentials,
+        cache_credentials: Storage,
     ):
         self._dataset_manager = dataset_manager
         self._cache_dir = cache_dir

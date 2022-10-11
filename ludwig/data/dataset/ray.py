@@ -60,7 +60,7 @@ else:
 
 def read_remote_parquet(path: str, backend: Backend):
     path = get_path(path)
-    fs = backend.credentials.cache.fs
+    fs = backend.storage.cache.fs
     return read_parquet(path, filesystem=PyFileSystem(FSSpecHandler(fs)))
 
 

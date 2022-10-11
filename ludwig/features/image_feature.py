@@ -454,7 +454,7 @@ class ImageFeatureMixin(BaseFeatureMixin):
             num_failed_image_reads = 0
 
             data_fp = backend.cache.get_cache_path(wrap(metadata.get(SRC)), metadata.get(CHECKSUM), TRAINING)
-            with backend.credentials.cache.fs.upload_h5(data_fp) as h5_file:
+            with backend.storage.cache.fs.upload_h5(data_fp) as h5_file:
                 # todo future add multiprocessing/multithreading
                 image_dataset = h5_file.create_dataset(
                     feature_config[PROC_COLUMN] + "_data", (num_images, num_channels, height, width), dtype=np.uint8

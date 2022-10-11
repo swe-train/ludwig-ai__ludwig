@@ -24,7 +24,7 @@ import pandas as pd
 import psutil
 import torch
 
-from ludwig.backend.utils.credentials import CredentialManager
+from ludwig.backend.utils.storage import StorageManager
 from ludwig.data.cache.manager import CacheManager
 from ludwig.data.dataframe.pandas import PANDAS
 from ludwig.data.dataset.base import DatasetManager
@@ -47,12 +47,12 @@ class Backend(ABC):
     ):
         credentials = credentials or {}
         self._dataset_manager = dataset_manager
-        self._cred_manager = CredentialManager(**credentials)
-        self._cache_manager = CacheManager(self._dataset_manager, cache_dir, self._cred_manager.cache)
+        self._storage_manager = StorageManager(**credentials)
+        self._cache_manager = CacheManager(self._dataset_manager, cache_dir, self._storage_manager.cache)
 
     @property
-    def credentials(self) -> CredentialManager:
-        return self._cred_manager
+    def storage(self) -> StorageManager:
+        return self._storage_manager
 
     @property
     def cache(self) -> CacheManager:
