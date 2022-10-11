@@ -17,13 +17,14 @@
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from typing import Callable, Optional, Union
+from typing import Any, Callable, Dict, Optional, Union
 
 import numpy as np
 import pandas as pd
 import psutil
 import torch
 
+from ludwig.backend.utils.credentials import CredentialManager
 from ludwig.data.cache.manager import CacheManager
 from ludwig.data.dataframe.pandas import PANDAS
 from ludwig.data.dataset.base import DatasetManager
@@ -42,17 +43,23 @@ class Backend(ABC):
         self,
         dataset_manager: DatasetManager,
         cache_dir: Optional[str] = None,
-        cache_credentials: Optional[Union[str, dict]] = None,
+        credentials: Optional[Dict[str, Any]] = None,
     ):
+        credentials = credentials or {}
         self._dataset_manager = dataset_manager
-        self._cache_manager = CacheManager(self._dataset_manager, cache_dir, cache_credentials)
+        self._cred_manager = CredentialManager(**credentials)
+        self._cache_manager = CacheManager(self._dataset_manager, cache_dir, self._cred_manager.cache.to_dict())
 
     @property
-    def cache(self):
+    def credentials(self) -> CredentialManager:
+        return self._cred_manager
+
+    @property
+    def cache(self) -> CacheManager:
         return self._cache_manager
 
     @property
-    def dataset_manager(self):
+    def dataset_manager(self) -> DatasetManager:
         return self._dataset_manager
 
     @abstractmethod

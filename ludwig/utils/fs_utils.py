@@ -23,7 +23,7 @@ import pathlib
 import shutil
 import tempfile
 import uuid
-from typing import Optional
+from typing import Any, Callable, IO, Iterable, List, Optional, Tuple
 from urllib.parse import unquote, urlparse
 
 import certifi
@@ -34,106 +34,178 @@ import urllib3
 from filelock import FileLock
 from fsspec.core import split_protocol
 
+from ludwig.utils.misc_utils import memoized_method
+
 logger = logging.getLogger(__name__)
 
 
-def get_fs_and_path(url):
-    protocol, path = split_protocol(url)
+class RemoteFilesystem:
+    def __init__(self, protocol: str):
+        self.fs: fsspec.AbstractFileSystem = fsspec.filesystem(protocol)
+
+    def find_non_existing_dir_by_adding_suffix(self, directory_name: str) -> str:
+        suffix = 0
+        curr_directory_name = directory_name
+        while self.fs.exists(curr_directory_name):
+            curr_directory_name = directory_name + "_" + str(suffix)
+            suffix += 1
+        return curr_directory_name
+
+    def path_exists(self, url: str) -> bool:
+        path = get_path(url)
+        return self.fs.exists(path)
+
+    def listdir(self, url: str) -> List[Any]:
+        path = get_path(url)
+        return self.fs.listdir(path)
+
+    def rename(self, src: str, tgt: str):
+        protocol, _ = split_protocol(tgt)
+        if protocol is not None:
+            self.fs.mv(src, tgt, recursive=True)
+        else:
+            safe_move_file(src, tgt)
+
+    def upload_file(self, src: str, tgt: str):
+        self.fs.put(src, tgt)
+
+    def copy(self, src: str, tgt: str, recursive: bool = False):
+        self.fs.copy(src, tgt, recursive=recursive)
+
+    def makedirs(self, url: str, exist_ok: bool = False):
+        path = get_path(url)
+        self.fs.makedirs(path, exist_ok=exist_ok)
+        if not self.path_exists(url):
+            with self.fs.open(url, mode="wb"):
+                pass
+
+    def delete(self, url: str, recursive: bool = False):
+        path = get_path(url)
+        return self.fs.delete(path, recursive=recursive)
+
+    def upload(self, lpath: str, rpath: str):
+        path = get_path(rpath)
+        pyarrow.fs.copy_files(
+            lpath, path, destination_filesystem=pyarrow.fs.PyFileSystem(pyarrow.fs.FSSpecHandler(self.fs))
+        )
+
+    def download(self, rpath: str, lpath: str):
+        path = get_path(rpath)
+        pyarrow.fs.copy_files(path, lpath, source_filesystem=pyarrow.fs.PyFileSystem(pyarrow.fs.FSSpecHandler(self.fs)))
+
+    def checksum(self, url: str) -> int:
+        path = get_path(url)
+        return self.fs.checksum(path)
+
+    @contextlib.contextmanager
+    def upload_output_directory(self, url: str) -> Iterable[Tuple[str, Callable]]:
+        if url is None:
+            yield None, None
+            return
+
+        protocol, _ = split_protocol(url)
+        if protocol is not None:
+            # To avoid extra network load, write all output files locally at runtime,
+            # then upload to the remote fs at the end.
+            with tempfile.TemporaryDirectory() as tmpdir:
+                remote_path = get_path(url)
+
+                # In cases where we are resuming from a previous run, we first need to download
+                # the artifacts from the remote filesystem
+                if self.path_exists(url):
+                    self.fs.get(url, tmpdir + "/", recursive=True)
+
+                def put_fn():
+                    # Use pyarrow API here as fs.put() is inconsistent in where it uploads the file
+                    # See: https://github.com/fsspec/filesystem_spec/issues/1062
+                    pyarrow.fs.copy_files(
+                        tmpdir,
+                        remote_path,
+                        destination_filesystem=pyarrow.fs.PyFileSystem(pyarrow.fs.FSSpecHandler(self.fs)),
+                    )
+
+                # Write to temp directory locally
+                yield tmpdir, put_fn
+
+                # Upload to remote when finished
+                put_fn()
+        else:
+            self.makedirs(url, exist_ok=True)
+            # Just use the output directory directly if using a local filesystem
+            yield url, None
+
+    @contextlib.contextmanager
+    def open_file(self, url: str, *args, **kwargs) -> Iterable[IO]:
+        path = get_path(url)
+        with self.fs.open(path, *args, **kwargs) as f:
+            yield f
+
+    @contextlib.contextmanager
+    def download_h5(self, url: str) -> Iterable[IO]:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            local_path = os.path.join(tmpdir, os.path.basename(url))
+            path = get_path(url)
+            self.fs.get(path, local_path)
+            with h5py.File(local_path, "r") as f:
+                yield f
+
+    @contextlib.contextmanager
+    def upload_h5(self, url: str) -> Iterable[IO]:
+        with self.upload_output_file(url) as local_fname:
+            mode = "w"
+            if url == local_fname and self.path_exists(url):
+                mode = "r+"
+
+            with h5py.File(local_fname, mode) as f:
+                yield f
+
+    @contextlib.contextmanager
+    def upload_output_file(self, url: str) -> Iterable[str]:
+        """Takes a remote URL as input, returns a temp filename, then uploads it when done."""
+        protocol, _ = split_protocol(url)
+        if protocol is not None:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                local_fname = os.path.join(tmpdir, "tmpfile")
+                yield local_fname
+                self.fs.put(local_fname, url, recursive=True)
+        else:
+            yield url
+
+    @memoized_method(maxsize=32)
+    def get_bytes_obj_from_path(self, path: str) -> Optional[bytes]:
+        if is_http(path):
+            try:
+                return get_bytes_obj_from_http_path(path)
+            except Exception as e:
+                logger.warning(e)
+                return None
+        else:
+            try:
+                with self.open_file(path) as f:
+                    return f.read()
+            except OSError as e:
+                logger.warning(e)
+                return None
+
+
+def get_fs(url: str) -> RemoteFilesystem:
+    protocol, _ = split_protocol(url)
+    return RemoteFilesystem(protocol)
+
+
+def get_path(url: str) -> str:
+    _, path = split_protocol(url)
     # Parse the url to get only the escaped url path
     path = unquote(urlparse(path).path)
     # Create a windows compatible path from url path
-    path = os.fspath(pathlib.PurePosixPath(path))
-    fs = fsspec.filesystem(protocol)
-    return fs, path
+    return os.fspath(pathlib.PurePosixPath(path))
 
 
-def has_remote_protocol(url):
-    protocol, _ = split_protocol(url)
-    return protocol and protocol != "file"
-
-
-def is_http(urlpath):
-    protocol, _ = split_protocol(urlpath)
-    return protocol == "http" or protocol == "https"
-
-
-def upgrade_http(urlpath):
-    protocol, url = split_protocol(urlpath)
-    if protocol == "http":
-        return "https://" + url
-    return None
-
-
-@functools.lru_cache(maxsize=32)
-def get_bytes_obj_from_path(path: str) -> Optional[bytes]:
-    if is_http(path):
-        try:
-            return get_bytes_obj_from_http_path(path)
-        except Exception as e:
-            logger.warning(e)
-            return None
-    else:
-        try:
-            with open_file(path) as f:
-                return f.read()
-        except OSError as e:
-            logger.warning(e)
-            return None
-
-
-def stream_http_get_request(path: str) -> urllib3.response.HTTPResponse:
-    if upgrade_http(path):
-        http = urllib3.PoolManager()
-    else:
-        http = urllib3.PoolManager(ca_certs=certifi.where())
-    resp = http.request("GET", path, preload_content=False)
-    return resp
-
-
-@functools.lru_cache(maxsize=32)
-def get_bytes_obj_from_http_path(path: str) -> bytes:
-    resp = stream_http_get_request(path)
-    if resp.status == 404:
-        upgraded = upgrade_http(path)
-        if upgraded:
-            logger.info(f"reading url {path} failed. upgrading to https and retrying")
-            return get_bytes_obj_from_http_path(upgraded)
-        else:
-            raise urllib3.exceptions.HTTPError(f"reading url {path} failed and cannot be upgraded to https")
-
-    # stream data
-    data = b""
-    for chunk in resp.stream(1024):
-        data += chunk
-    return data
-
-
-def find_non_existing_dir_by_adding_suffix(directory_name):
-    fs, _ = get_fs_and_path(directory_name)
-    suffix = 0
-    curr_directory_name = directory_name
-    while fs.exists(curr_directory_name):
-        curr_directory_name = directory_name + "_" + str(suffix)
-        suffix += 1
-    return curr_directory_name
-
-
-def abspath(url):
-    protocol, _ = split_protocol(url)
+def to_url(path):
+    protocol, _ = split_protocol(path)
     if protocol is not None:
-        # we assume any path containing an explicit protovol is fully qualified
-        return url
-    return os.path.abspath(url)
-
-
-def path_exists(url):
-    fs, path = get_fs_and_path(url)
-    return fs.exists(path)
-
-
-def listdir(url):
-    fs, path = get_fs_and_path(url)
-    return fs.listdir(path)
+        return path
+    return pathlib.Path(os.path.abspath(path)).as_uri()
 
 
 def safe_move_file(src, dst):
@@ -168,138 +240,56 @@ def safe_move_file(src, dst):
             raise
 
 
-def rename(src, tgt):
-    protocol, _ = split_protocol(tgt)
-    if protocol is not None:
-        fs = fsspec.filesystem(protocol)
-        fs.mv(src, tgt, recursive=True)
-    else:
-        safe_move_file(src, tgt)
-
-
-def upload_file(src, tgt):
-    protocol, _ = split_protocol(tgt)
-    fs = fsspec.filesystem(protocol)
-    fs.put(src, tgt)
-
-
-def copy(src, tgt, recursive=False):
-    protocol, _ = split_protocol(tgt)
-    fs = fsspec.filesystem(protocol)
-    fs.copy(src, tgt, recursive=recursive)
-
-
-def makedirs(url, exist_ok=False):
-    fs, path = get_fs_and_path(url)
-    fs.makedirs(path, exist_ok=exist_ok)
-    if not path_exists(url):
-        with fsspec.open(url, mode="wb"):
-            pass
-
-
-def delete(url, recursive=False):
-    fs, path = get_fs_and_path(url)
-    return fs.delete(path, recursive=recursive)
-
-
-def upload(lpath, rpath):
-    fs, path = get_fs_and_path(rpath)
-    pyarrow.fs.copy_files(lpath, path, destination_filesystem=pyarrow.fs.PyFileSystem(pyarrow.fs.FSSpecHandler(fs)))
-
-
-def download(rpath, lpath):
-    fs, path = get_fs_and_path(rpath)
-    pyarrow.fs.copy_files(path, lpath, source_filesystem=pyarrow.fs.PyFileSystem(pyarrow.fs.FSSpecHandler(fs)))
-
-
-def checksum(url):
-    fs, path = get_fs_and_path(url)
-    return fs.checksum(path)
-
-
-def to_url(path):
-    protocol, _ = split_protocol(path)
-    if protocol is not None:
-        return path
-    return pathlib.Path(os.path.abspath(path)).as_uri()
-
-
-@contextlib.contextmanager
-def upload_output_directory(url):
-    if url is None:
-        yield None, None
-        return
-
+def abspath(url):
     protocol, _ = split_protocol(url)
     if protocol is not None:
-        # To avoid extra network load, write all output files locally at runtime,
-        # then upload to the remote fs at the end.
-        with tempfile.TemporaryDirectory() as tmpdir:
-            fs, remote_path = get_fs_and_path(url)
-
-            # In cases where we are resuming from a previous run, we first need to download
-            # the artifacts from the remote filesystem
-            if path_exists(url):
-                fs.get(url, tmpdir + "/", recursive=True)
-
-            def put_fn():
-                # Use pyarrow API here as fs.put() is inconsistent in where it uploads the file
-                # See: https://github.com/fsspec/filesystem_spec/issues/1062
-                pyarrow.fs.copy_files(
-                    tmpdir, remote_path, destination_filesystem=pyarrow.fs.PyFileSystem(pyarrow.fs.FSSpecHandler(fs))
-                )
-
-            # Write to temp directory locally
-            yield tmpdir, put_fn
-
-            # Upload to remote when finished
-            put_fn()
-    else:
-        makedirs(url, exist_ok=True)
-        # Just use the output directory directly if using a local filesystem
-        yield url, None
+        # we assume any path containing an explicit protovol is fully qualified
+        return url
+    return os.path.abspath(url)
 
 
-@contextlib.contextmanager
-def open_file(url, *args, **kwargs):
-    fs, path = get_fs_and_path(url)
-    with fs.open(path, *args, **kwargs) as f:
-        yield f
-
-
-@contextlib.contextmanager
-def download_h5(url):
-    with tempfile.TemporaryDirectory() as tmpdir:
-        local_path = os.path.join(tmpdir, os.path.basename(url))
-        fs, path = get_fs_and_path(url)
-        fs.get(path, local_path)
-        with h5py.File(local_path, "r") as f:
-            yield f
-
-
-@contextlib.contextmanager
-def upload_h5(url):
-    with upload_output_file(url) as local_fname:
-        mode = "w"
-        if url == local_fname and path_exists(url):
-            mode = "r+"
-
-        with h5py.File(local_fname, mode) as f:
-            yield f
-
-
-@contextlib.contextmanager
-def upload_output_file(url):
-    """Takes a remote URL as input, returns a temp filename, then uploads it when done."""
+def has_remote_protocol(url):
     protocol, _ = split_protocol(url)
-    if protocol is not None:
-        fs = fsspec.filesystem(protocol)
-        with tempfile.TemporaryDirectory() as tmpdir:
-            local_fname = os.path.join(tmpdir, "tmpfile")
-            yield local_fname
-            fs.put(local_fname, url, recursive=True)
+    return protocol and protocol != "file"
+
+
+def is_http(urlpath):
+    protocol, _ = split_protocol(urlpath)
+    return protocol == "http" or protocol == "https"
+
+
+def upgrade_http(urlpath):
+    protocol, url = split_protocol(urlpath)
+    if protocol == "http":
+        return "https://" + url
+    return None
+
+
+def stream_http_get_request(path: str) -> urllib3.response.HTTPResponse:
+    if upgrade_http(path):
+        http = urllib3.PoolManager()
     else:
-        yield url
+        http = urllib3.PoolManager(ca_certs=certifi.where())
+    resp = http.request("GET", path, preload_content=False)
+    return resp
+
+
+@functools.lru_cache(maxsize=32)
+def get_bytes_obj_from_http_path(path: str) -> bytes:
+    resp = stream_http_get_request(path)
+    if resp.status == 404:
+        upgraded = upgrade_http(path)
+        if upgraded:
+            logger.info(f"reading url {path} failed. upgrading to https and retrying")
+            return get_bytes_obj_from_http_path(upgraded)
+        else:
+            raise urllib3.exceptions.HTTPError(f"reading url {path} failed and cannot be upgraded to https")
+
+    # stream data
+    data = b""
+    for chunk in resp.stream(1024):
+        data += chunk
+    return data
 
 
 class file_lock(contextlib.AbstractContextManager):
