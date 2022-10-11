@@ -35,7 +35,7 @@ from ludwig.data.batcher.base import Batcher
 from ludwig.data.dataset.base import Dataset, DatasetManager
 from ludwig.utils.data_utils import DATA_TRAIN_HDF5_FP, DATA_TRAIN_PARQUET_FP
 from ludwig.utils.defaults import default_random_seed
-from ludwig.utils.fs_utils import get_fs_and_path
+from ludwig.utils.fs_utils import get_path
 from ludwig.utils.misc_utils import get_proc_features
 from ludwig.utils.types import DataFrame, Series
 
@@ -58,8 +58,9 @@ else:
         return series.astype(TensorDtype())
 
 
-def read_remote_parquet(path: str):
-    fs, path = get_fs_and_path(path)
+def read_remote_parquet(path: str, backend: Backend):
+    path = get_path(path)
+    fs = backend.credentials.cache.fs
     return read_parquet(path, filesystem=PyFileSystem(FSSpecHandler(fs)))
 
 
@@ -74,7 +75,7 @@ class RayDataset(Dataset):
         backend: Backend,
     ):
         self.df_engine = backend.df_engine
-        self.ds = self.df_engine.to_ray_dataset(df) if not isinstance(df, str) else read_remote_parquet(df)
+        self.ds = self.df_engine.to_ray_dataset(df) if not isinstance(df, str) else read_remote_parquet(df, backend)
         self.features = features
         self.training_set_metadata = training_set_metadata
         self.data_hdf5_fp = training_set_metadata.get(DATA_TRAIN_HDF5_FP)

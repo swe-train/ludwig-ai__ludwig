@@ -24,7 +24,7 @@ import torch
 
 from ludwig.datasets.dataset_config import DatasetConfig
 from ludwig.datasets.loaders.dataset_loader import DatasetLoader
-from ludwig.utils.fs_utils import makedirs
+from ludwig.utils.fs_utils import default_fs
 
 logger = logging.getLogger(__name__)
 NUM_LABELS = 10
@@ -99,7 +99,7 @@ class MNISTLoader(DatasetLoader):
         output_dirs = [os.path.join(output_dir, str(i)) for i in range(NUM_LABELS)]
 
         for output_dir in output_dirs:
-            makedirs(output_dir, exist_ok=True)
+            default_fs.makedirs(output_dir, exist_ok=True)
 
         def write_processed_image(t):
             i, label = t

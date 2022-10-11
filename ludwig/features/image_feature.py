@@ -50,7 +50,7 @@ from ludwig.schema.features.image_feature import ImageInputFeatureConfig
 from ludwig.schema.features.utils import register_input_feature
 from ludwig.utils.data_utils import get_abs_path
 from ludwig.utils.dataframe_utils import is_dask_series_or_df
-from ludwig.utils.fs_utils import has_remote_protocol, upload_h5
+from ludwig.utils.fs_utils import has_remote_protocol
 from ludwig.utils.image_utils import (
     get_gray_default_image,
     grayscale,
@@ -454,7 +454,7 @@ class ImageFeatureMixin(BaseFeatureMixin):
             num_failed_image_reads = 0
 
             data_fp = backend.cache.get_cache_path(wrap(metadata.get(SRC)), metadata.get(CHECKSUM), TRAINING)
-            with upload_h5(data_fp) as h5_file:
+            with backend.credentials.cache.fs.upload_h5(data_fp) as h5_file:
                 # todo future add multiprocessing/multithreading
                 image_dataset = h5_file.create_dataset(
                     feature_config[PROC_COLUMN] + "_data", (num_images, num_channels, height, width), dtype=np.uint8

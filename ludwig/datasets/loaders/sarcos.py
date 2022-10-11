@@ -18,7 +18,7 @@ import pandas as pd
 from scipy.io import loadmat
 
 from ludwig.datasets.loaders.dataset_loader import DatasetLoader
-from ludwig.utils.fs_utils import open_file
+from ludwig.utils.fs_utils import default_fs
 
 
 class SarcosLoader(DatasetLoader):
@@ -43,7 +43,7 @@ class SarcosLoader(DatasetLoader):
 
     def load_file_to_dataframe(self, file_path: str) -> pd.DataFrame:
         """Loads a file into a dataframe."""
-        with open_file(file_path) as f:
+        with default_fs.open_file(file_path) as f:
             mat = loadmat(f)
         file_df = pd.DataFrame(mat[os.path.basename(file_path).split(".")[0]])
         return file_df

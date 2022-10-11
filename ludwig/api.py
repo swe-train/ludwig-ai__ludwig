@@ -88,7 +88,6 @@ from ludwig.utils.data_utils import (
 )
 from ludwig.utils.dataset_utils import generate_dataset_statistics
 from ludwig.utils.defaults import default_random_seed, merge_with_defaults
-from ludwig.utils.fs_utils import makedirs, path_exists, upload_output_directory
 from ludwig.utils.misc_utils import (
     get_commit_hash,
     get_file_names,
@@ -359,8 +358,9 @@ class LudwigModel:
             logger.info(HYPEROPT_WARNING)
 
         # setup directories and file names
+        artifact_fs = self.backend.credentials.artifacts.fs
         if model_resume_path is not None:
-            if path_exists(model_resume_path):
+            if artifact_fs.path_exists(model_resume_path):
                 output_directory = model_resume_path
             else:
                 if self.backend.is_coordinator():
@@ -384,8 +384,9 @@ class LudwigModel:
             and skip_save_processed_input
         )
 
+        artifact_fs = self.backend.credentials.artifacts.fs
         output_url = output_directory
-        with upload_output_directory(output_directory) as (output_directory, upload_fn):
+        with artifact_fs.upload_output_directory(output_directory) as (output_directory, upload_fn):
             train_callbacks = self.callbacks
             if upload_fn is not None:
                 # Upload output files (checkpoints, etc.) to remote storage at the end of
@@ -402,7 +403,7 @@ class LudwigModel:
             description_fn = training_stats_fn = model_dir = None
             if self.backend.is_coordinator():
                 if should_create_output_directory:
-                    makedirs(output_directory, exist_ok=True)
+                    artifact_fs.makedirs(output_directory, exist_ok=True)
                 description_fn, training_stats_fn, model_dir = get_file_names(output_directory)
 
             if isinstance(training_set, Dataset) and training_set_metadata is not None:
@@ -773,6 +774,7 @@ class LudwigModel:
         )
 
         logger.debug("Predicting")
+        artifact_fs = self.backend.credentials.artifacts.fs
         with self.backend.create_predictor(self.model, batch_size=batch_size) as predictor:
             predictions = predictor.batch_predict(
                 dataset,
@@ -783,7 +785,7 @@ class LudwigModel:
                 # there is no need to create a directory that will remain empty
                 should_create_exp_dir = not (skip_save_unprocessed_output and skip_save_predictions)
                 if should_create_exp_dir:
-                    makedirs(output_directory, exist_ok=True)
+                    artifact_fs.makedirs(output_directory, exist_ok=True)
 
             logger.debug("Postprocessing")
             postproc_predictions = postprocess(
@@ -890,6 +892,7 @@ class LudwigModel:
             batch_size = self.config[TRAINER][EVAL_BATCH_SIZE] or self.config[TRAINER][BATCH_SIZE]
 
         logger.debug("Predicting")
+        artifact_fs = self.backend.credentials.artifacts.fs
         with self.backend.create_predictor(self.model, batch_size=batch_size) as predictor:
             eval_stats, predictions = predictor.batch_evaluation(
                 dataset,
@@ -917,7 +920,7 @@ class LudwigModel:
                     skip_save_unprocessed_output and skip_save_predictions and skip_save_eval_stats
                 )
                 if should_create_exp_dir:
-                    makedirs(output_directory, exist_ok=True)
+                    artifact_fs.makedirs(output_directory, exist_ok=True)
 
             if collect_predictions:
                 logger.debug("Postprocessing")

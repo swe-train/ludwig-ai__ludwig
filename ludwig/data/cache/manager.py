@@ -1,27 +1,35 @@
 import logging
 import os
-from typing import Optional, Union
+from typing import Any, Dict, Optional
 
+from ludwig.backend.utils.credentials import Credentials
 from ludwig.constants import CHECKSUM, META, TEST, TRAINING, VALIDATION
 from ludwig.data.cache.types import alphanum, CacheableDataset
 from ludwig.data.cache.util import calculate_checksum
 from ludwig.data.dataset.base import DatasetManager
 from ludwig.utils import data_utils
-from ludwig.utils.fs_utils import delete, path_exists
 
 logger = logging.getLogger(__name__)
 
 
 class DatasetCache:
-    def __init__(self, config, checksum, cache_map, dataset_manager):
+    def __init__(
+        self,
+        config: Dict[str, Any],
+        checksum: str,
+        cache_map: Dict[str, Any],
+        dataset_manager: DatasetManager,
+        cache_credentials: Credentials,
+    ):
         self.config = config
         self.checksum = checksum
         self.cache_map = cache_map
         self.dataset_manager = dataset_manager
+        self.cache_fs = cache_credentials.fs
 
     def get(self):
         training_set_metadata_fp = self.cache_map[META]
-        if not path_exists(training_set_metadata_fp):
+        if not self.cache_fs.path_exists(training_set_metadata_fp):
             return None
 
         try:
@@ -30,11 +38,13 @@ class DatasetCache:
             logger.error(f"failed to load cached training set metadata at {training_set_metadata_fp}", exc_info=e)
             return None
 
-        cached_training_set = self.cache_map[TRAINING] if path_exists(self.cache_map[TRAINING]) else None
+        cached_training_set = self.cache_map[TRAINING] if self.cache_fs.path_exists(self.cache_map[TRAINING]) else None
 
-        cached_test_set = self.cache_map[TEST] if path_exists(self.cache_map[TEST]) else None
+        cached_test_set = self.cache_map[TEST] if self.cache_fs.path_exists(self.cache_map[TEST]) else None
 
-        cached_validation_set = self.cache_map[VALIDATION] if path_exists(self.cache_map[VALIDATION]) else None
+        cached_validation_set = (
+            self.cache_map[VALIDATION] if self.cache_fs.path_exists(self.cache_map[VALIDATION]) else None
+        )
 
         valid = self.checksum == cache_training_set_metadata.get(CHECKSUM) and cached_training_set is not None
 
@@ -77,22 +87,20 @@ class DatasetCache:
 
     def delete(self):
         for fname in self.cache_map.values():
-            if path_exists(fname):
+            if self.cache_fs.path_exists(fname):
                 # Parquet entries in the cache_ma can be pointers to directories.
-                delete(fname, recursive=True)
+                self.cache_fs.delete(fname, recursive=True)
 
 
 class CacheManager:
     def __init__(
         self,
         dataset_manager: DatasetManager,
-        cache_dir: Optional[str] = None,
-        cache_credentials: Optional[Union[str, dict]] = None,
+        cache_dir: Optional[str],
+        cache_credentials: Credentials,
     ):
         self._dataset_manager = dataset_manager
         self._cache_dir = cache_dir
-        if isinstance(cache_credentials, str):
-            cache_credentials = data_utils.load_json(cache_credentials)
         self._cache_credentials = cache_credentials
 
     def get_dataset_cache(
@@ -111,7 +119,7 @@ class CacheManager:
                 TEST: self.get_cache_path(dataset, key, TEST),
                 VALIDATION: self.get_cache_path(dataset, key, VALIDATION),
             }
-            return DatasetCache(config, key, cache_map, self._dataset_manager)
+            return DatasetCache(config, key, cache_map, self._dataset_manager, self._cache_credentials)
         else:
             key = self.get_cache_key(training_set, config)
             cache_map = {
@@ -120,7 +128,7 @@ class CacheManager:
                 TEST: self.get_cache_path(test_set, key, TEST),
                 VALIDATION: self.get_cache_path(validation_set, key, VALIDATION),
             }
-            return DatasetCache(config, key, cache_map, self._dataset_manager)
+            return DatasetCache(config, key, cache_map, self._dataset_manager, self._cache_credentials)
 
     def get_cache_key(self, dataset: CacheableDataset, config: dict) -> str:
         return calculate_checksum(dataset, config)

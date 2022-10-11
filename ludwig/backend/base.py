@@ -48,7 +48,7 @@ class Backend(ABC):
         credentials = credentials or {}
         self._dataset_manager = dataset_manager
         self._cred_manager = CredentialManager(**credentials)
-        self._cache_manager = CacheManager(self._dataset_manager, cache_dir, self._cred_manager.cache.to_dict())
+        self._cache_manager = CacheManager(self._dataset_manager, cache_dir, self._cred_manager.cache)
 
     @property
     def credentials(self) -> CredentialManager:

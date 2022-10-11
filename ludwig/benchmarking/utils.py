@@ -8,7 +8,6 @@ from concurrent.futures import ThreadPoolExecutor
 from types import ModuleType
 from typing import Any, Dict, List, Tuple, Union
 
-import fsspec
 import pandas as pd
 import yaml
 
@@ -19,7 +18,7 @@ from ludwig.globals import CONFIG_YAML
 from ludwig.utils.data_utils import load_yaml
 from ludwig.utils.dataset_utils import get_repeatable_train_val_test_split
 from ludwig.utils.defaults import default_random_seed
-from ludwig.utils.fs_utils import get_fs_and_path
+from ludwig.utils.fs_utils import default_fs
 
 HYPEROPT_OUTDIR_RETAINED_FILES = [
     "hyperopt_statistics.json",
@@ -65,8 +64,7 @@ def export_artifacts(experiment: Dict[str, str], experiment_output_directory: st
     :param export_base_path: remote or local path (directory) where artifacts are
         exported. (e.g. s3://benchmarking.us-west-2.ludwig.com/bench/ or your/local/bench/)
     """
-    protocol, _ = fsspec.core.split_protocol(export_base_path)
-    fs, _ = get_fs_and_path(export_base_path)
+    fs = default_fs.to_fsspec(export_base_path)
     try:
         export_full_path = os.path.join(export_base_path, experiment["dataset_name"], experiment["experiment_name"])
 
@@ -103,8 +101,7 @@ def download_artifacts(
         the benchmarking experiments.
     """
     bench_config = load_yaml(bench_config_path)
-    protocol, _ = fsspec.core.split_protocol(download_base_path)
-    fs, _ = get_fs_and_path(download_base_path)
+    fs = default_fs.to_fsspec(download_base_path)
     os.makedirs(local_dir, exist_ok=True)
 
     coroutines = []

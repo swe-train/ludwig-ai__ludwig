@@ -8,7 +8,7 @@ import yaml
 
 from ludwig.api import LudwigModel
 from ludwig.datasets import twitter_bots
-from ludwig.utils.fs_utils import rename
+from ludwig.utils.fs_utils import default_fs
 from ludwig.visualize import confusion_matrix, learning_curves
 
 if __name__ == "__main__":
@@ -22,7 +22,7 @@ if __name__ == "__main__":
 
     # Moves profile images into local directory, so relative paths in the dataset will be resolved.
     if not os.path.exists("./profile_images"):
-        rename(os.path.join(dataset.processed_dataset_path, "profile_images"), "./profile_images")
+        default_fs.rename(os.path.join(dataset.processed_dataset_path, "profile_images"), "./profile_images")
 
     config = yaml.safe_load(
         """

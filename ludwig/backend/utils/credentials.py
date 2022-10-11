@@ -2,6 +2,7 @@ import contextlib
 from typing import Any, Dict, Optional, Union
 
 from ludwig.utils import data_utils
+from ludwig.utils.fs_utils import RemoteFilesystem
 
 CredInputs = Optional[Union[str, Dict[str, Any]]]
 
@@ -15,6 +16,10 @@ CACHE = "cache"
 class Credentials:
     def __init__(self, creds: Optional[Dict[str, Any]]):
         self._creds = creds
+
+    @property
+    def fs(self) -> RemoteFilesystem:
+        return RemoteFilesystem(self._creds)
 
     @contextlib.contextmanager
     def use(self):

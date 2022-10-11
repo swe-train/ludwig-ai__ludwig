@@ -26,7 +26,7 @@ from ludwig.data.sampler import DistributedSampler
 from ludwig.features.base_feature import BaseFeature
 from ludwig.utils.data_utils import DATA_TRAIN_HDF5_FP, save_hdf5
 from ludwig.utils.dataframe_utils import from_numpy_dataset, to_numpy_dataset
-from ludwig.utils.fs_utils import download_h5
+from ludwig.utils.fs_utils import default_fs
 from ludwig.utils.misc_utils import get_proc_features
 
 
@@ -62,7 +62,7 @@ class PandasDataset(Dataset):
         indices[1, :] = np.arange(len(sub_batch))
         indices = indices[:, np.argsort(indices[0])]
 
-        with download_h5(self.data_hdf5_fp) as h5_file:
+        with default_fs.download_h5(self.data_hdf5_fp) as h5_file:
             im_data = h5_file[proc_column + "_data"][indices[0, :], :, :]
         indices[2, :] = np.arange(len(sub_batch))
         indices = indices[:, np.argsort(indices[1])]

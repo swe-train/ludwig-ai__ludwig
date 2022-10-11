@@ -23,7 +23,7 @@ import pathlib
 import shutil
 import tempfile
 import uuid
-from typing import Any, Callable, IO, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, IO, Iterable, List, Optional, Tuple
 from urllib.parse import unquote, urlparse
 
 import certifi
@@ -34,68 +34,79 @@ import urllib3
 from filelock import FileLock
 from fsspec.core import split_protocol
 
+from ludwig.utils.data_utils import use_credentials
 from ludwig.utils.misc_utils import memoized_method
 
 logger = logging.getLogger(__name__)
 
 
 class RemoteFilesystem:
-    def __init__(self, protocol: str):
-        self.fs: fsspec.AbstractFileSystem = fsspec.filesystem(protocol)
+    def __init__(self, creds: Optional[Dict[str, Any]]):
+        self.creds = creds
+
+    def to_fsspec(self, url: str) -> fsspec.AbstractFileSystem:
+        return self._fs(url)
+
+    def _fs(self, url: str) -> fsspec.AbstractFileSystem:
+        protocol, _ = split_protocol(url)
+        with use_credentials(self.creds):
+            return fsspec.filesystem(protocol)
 
     def find_non_existing_dir_by_adding_suffix(self, directory_name: str) -> str:
         suffix = 0
         curr_directory_name = directory_name
-        while self.fs.exists(curr_directory_name):
+        while self._fs(curr_directory_name).exists(curr_directory_name):
             curr_directory_name = directory_name + "_" + str(suffix)
             suffix += 1
         return curr_directory_name
 
     def path_exists(self, url: str) -> bool:
         path = get_path(url)
-        return self.fs.exists(path)
+        return self._fs(url).exists(path)
 
     def listdir(self, url: str) -> List[Any]:
         path = get_path(url)
-        return self.fs.listdir(path)
+        return self._fs(url).listdir(path)
 
     def rename(self, src: str, tgt: str):
         protocol, _ = split_protocol(tgt)
         if protocol is not None:
-            self.fs.mv(src, tgt, recursive=True)
+            self._fs(tgt).mv(src, tgt, recursive=True)
         else:
             safe_move_file(src, tgt)
 
     def upload_file(self, src: str, tgt: str):
-        self.fs.put(src, tgt)
+        self._fs(tgt).put(src, tgt)
 
     def copy(self, src: str, tgt: str, recursive: bool = False):
-        self.fs.copy(src, tgt, recursive=recursive)
+        self._fs(tgt).copy(src, tgt, recursive=recursive)
 
     def makedirs(self, url: str, exist_ok: bool = False):
         path = get_path(url)
-        self.fs.makedirs(path, exist_ok=exist_ok)
+        self._fs(url).makedirs(path, exist_ok=exist_ok)
         if not self.path_exists(url):
-            with self.fs.open(url, mode="wb"):
+            with self._fs(url).open(url, mode="wb"):
                 pass
 
     def delete(self, url: str, recursive: bool = False):
         path = get_path(url)
-        return self.fs.delete(path, recursive=recursive)
+        return self._fs(url).delete(path, recursive=recursive)
 
     def upload(self, lpath: str, rpath: str):
         path = get_path(rpath)
         pyarrow.fs.copy_files(
-            lpath, path, destination_filesystem=pyarrow.fs.PyFileSystem(pyarrow.fs.FSSpecHandler(self.fs))
+            lpath, path, destination_filesystem=pyarrow.fs.PyFileSystem(pyarrow.fs.FSSpecHandler(self._fs(rpath)))
         )
 
     def download(self, rpath: str, lpath: str):
         path = get_path(rpath)
-        pyarrow.fs.copy_files(path, lpath, source_filesystem=pyarrow.fs.PyFileSystem(pyarrow.fs.FSSpecHandler(self.fs)))
+        pyarrow.fs.copy_files(
+            path, lpath, source_filesystem=pyarrow.fs.PyFileSystem(pyarrow.fs.FSSpecHandler(self._fs(rpath)))
+        )
 
     def checksum(self, url: str) -> int:
         path = get_path(url)
-        return self.fs.checksum(path)
+        return self._fs(url).checksum(path)
 
     @contextlib.contextmanager
     def upload_output_directory(self, url: str) -> Iterable[Tuple[str, Callable]]:
@@ -109,11 +120,12 @@ class RemoteFilesystem:
             # then upload to the remote fs at the end.
             with tempfile.TemporaryDirectory() as tmpdir:
                 remote_path = get_path(url)
+                fs = self._fs(url)
 
                 # In cases where we are resuming from a previous run, we first need to download
                 # the artifacts from the remote filesystem
                 if self.path_exists(url):
-                    self.fs.get(url, tmpdir + "/", recursive=True)
+                    fs.get(url, tmpdir + "/", recursive=True)
 
                 def put_fn():
                     # Use pyarrow API here as fs.put() is inconsistent in where it uploads the file
@@ -121,7 +133,7 @@ class RemoteFilesystem:
                     pyarrow.fs.copy_files(
                         tmpdir,
                         remote_path,
-                        destination_filesystem=pyarrow.fs.PyFileSystem(pyarrow.fs.FSSpecHandler(self.fs)),
+                        destination_filesystem=pyarrow.fs.PyFileSystem(pyarrow.fs.FSSpecHandler(fs)),
                     )
 
                 # Write to temp directory locally
@@ -137,7 +149,7 @@ class RemoteFilesystem:
     @contextlib.contextmanager
     def open_file(self, url: str, *args, **kwargs) -> Iterable[IO]:
         path = get_path(url)
-        with self.fs.open(path, *args, **kwargs) as f:
+        with self._fs(url).open(path, *args, **kwargs) as f:
             yield f
 
     @contextlib.contextmanager
@@ -145,7 +157,7 @@ class RemoteFilesystem:
         with tempfile.TemporaryDirectory() as tmpdir:
             local_path = os.path.join(tmpdir, os.path.basename(url))
             path = get_path(url)
-            self.fs.get(path, local_path)
+            self._fs(url).get(path, local_path)
             with h5py.File(local_path, "r") as f:
                 yield f
 
@@ -167,7 +179,7 @@ class RemoteFilesystem:
             with tempfile.TemporaryDirectory() as tmpdir:
                 local_fname = os.path.join(tmpdir, "tmpfile")
                 yield local_fname
-                self.fs.put(local_fname, url, recursive=True)
+                self._fs(url).put(local_fname, url, recursive=True)
         else:
             yield url
 
@@ -188,9 +200,12 @@ class RemoteFilesystem:
                 return None
 
 
-def get_fs(url: str) -> RemoteFilesystem:
-    protocol, _ = split_protocol(url)
-    return RemoteFilesystem(protocol)
+# Default filesystem that uses credentials from an outer scope
+default_fs = RemoteFilesystem()
+
+
+def get_fs(creds: Optional[Dict[str, Any]] = None) -> RemoteFilesystem:
+    return RemoteFilesystem(creds)
 
 
 def get_path(url: str) -> str:

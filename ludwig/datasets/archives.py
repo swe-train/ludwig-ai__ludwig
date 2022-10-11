@@ -22,7 +22,7 @@ from enum import Enum
 from typing import List, Optional
 from zipfile import ZipFile
 
-from ludwig.utils.fs_utils import upload_output_directory
+from ludwig.utils.fs_utils import default_fs
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +106,7 @@ def extract_archive(archive_path: str, archive_type: Optional[ArchiveType] = Non
         return []
     archive_directory = os.path.dirname(archive_path)
     directory_contents_before = os.listdir(archive_directory)
-    with upload_output_directory(archive_directory) as (tmpdir, _):
+    with default_fs.upload_output_directory(archive_directory) as (tmpdir, _):
         if archive_type == ArchiveType.ZIP:
             with ZipFile(archive_path) as zfile:
                 zfile.extractall(tmpdir)

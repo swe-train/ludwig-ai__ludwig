@@ -2,7 +2,7 @@ import os
 from contextlib import contextmanager
 from typing import Optional
 
-from ludwig.utils.fs_utils import upload_output_directory
+from ludwig.utils.fs_utils import default_fs
 
 
 def create_kaggle_client():
@@ -39,7 +39,7 @@ def download_kaggle_dataset(
         # Call authenticate explicitly to pick up new credentials if necessary
         api = create_kaggle_client()
         api.authenticate()
-    with upload_output_directory(download_directory) as (tmpdir, _):
+    with default_fs.upload_output_directory(download_directory) as (tmpdir, _):
         if kaggle_competition:
             api.competition_download_files(kaggle_competition, path=tmpdir)
         else:
