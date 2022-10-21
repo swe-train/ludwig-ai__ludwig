@@ -145,8 +145,9 @@ class DateInputFeature(DateFeatureMixin, InputFeature):
     def update_config_with_metadata(input_feature, feature_metadata, *args, **kwargs):
         pass
 
-    def create_sample_input(self):
-        return torch.Tensor([[2013, 2, 26, 1, 57, 0, 0, 0, 0], [2015, 2, 26, 1, 57, 0, 0, 0, 0]]).type(torch.int32)
+    def create_sample_input(self, batch_size: int = 2):
+        date = [2013, 2, 26, 1, 57, 0, 0, 0, 0]
+        return torch.Tensor([date for _ in range(batch_size)]).type(torch.int32)
 
     @staticmethod
     def populate_defaults(input_feature):
