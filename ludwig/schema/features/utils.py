@@ -42,7 +42,7 @@ class InputFeaturesList(BaseMarshmallowConfig):
     #     pass
 
 
-def InputFeatureListDataclassField(features_list: list = []):
+def InputFeatureListDataclassField():
     class InputFeaturesListMarshmallowField(fields.Field):
         def _deserialize(self, value, attr, data, **kwargs):
             deserialized_features = []
@@ -85,9 +85,7 @@ def InputFeatureListDataclassField(features_list: list = []):
                 },
             }
 
-    for input_feature_config in input_config_registry.keys():
-        cls = get_input_feature_cls(input_feature_config)
-
+    # This field by design has no default dump/load - it is a required parameter:
     return field(
         metadata={
             "marshmallow_field": InputFeaturesListMarshmallowField(
