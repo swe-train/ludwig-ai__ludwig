@@ -53,6 +53,7 @@ from ludwig.constants import (
     VALIDATION,
 )
 from ludwig.data.dataset.base import Dataset
+from ludwig.data.dataset.pandas import PandasDatasetManager
 from ludwig.data.postprocessing import convert_predictions, postprocess
 from ludwig.data.preprocessing import load_metadata, preprocess_for_prediction, preprocess_for_training
 from ludwig.features.feature_registries import update_config_with_metadata
@@ -857,16 +858,19 @@ class LudwigModel:
 
         # preprocessing
         logger.debug("Preprocessing")
-        dataset, _ = preprocess_for_prediction(  # TODO (Connor): Refactor to use self.config_obj
-            self.config_obj.to_dict(),
-            dataset=dataset,
-            training_set_metadata=self.training_set_metadata,
-            data_format=data_format,
-            split=split,
-            include_outputs=False,
-            backend=self.backend,
-            callbacks=self.callbacks + (callbacks or []),
-        )
+
+        # TODO: apply preprocessing depending on model type
+        dataset = PandasDatasetManager(self.backend).create(dataset, self.config_obj.to_dict(), self.training_set_metadata)
+        # dataset, _ = preprocess_for_prediction(  # TODO (Connor): Refactor to use self.config_obj
+        #     self.config_obj.to_dict(),
+        #     dataset=dataset,
+        #     training_set_metadata=self.training_set_metadata,
+        #     data_format=data_format,
+        #     split=split,
+        #     include_outputs=False,
+        #     backend=self.backend,
+        #     callbacks=self.callbacks + (callbacks or []),
+        # )
 
         logger.debug("Predicting")
         with self.backend.create_predictor(self.model, batch_size=batch_size) as predictor:

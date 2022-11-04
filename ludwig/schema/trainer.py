@@ -3,7 +3,7 @@ from typing import Optional, Union
 
 from marshmallow_dataclass import dataclass
 
-from ludwig.constants import COMBINED, DEFAULT_BATCH_SIZE, LOSS, MAX_POSSIBLE_BATCH_SIZE, MODEL_ECD, MODEL_GBM, TRAINING
+from ludwig.constants import COMBINED, DEFAULT_BATCH_SIZE, LOSS, MAX_POSSIBLE_BATCH_SIZE, MODEL_ECD, MODEL_GBM, MODEL_STABLE_DIFFUSION, TRAINING
 from ludwig.schema import utils as schema_utils
 from ludwig.schema.metadata.trainer_metadata import TRAINER_METADATA
 from ludwig.schema.optimizers import (
@@ -560,10 +560,17 @@ class GBMTrainerConfig(BaseTrainerConfig):
     )
 
 
+@register_trainer_schema(MODEL_STABLE_DIFFUSION)
+@dataclass(repr=False, order=True)
+class DummyTrainerConfig(BaseTrainerConfig):
+    """Dummy trainer config for models that do not support training."""
+
+
+
 def get_model_type_jsonschema():
     return {
         "type": "string",
-        "enum": [MODEL_ECD, MODEL_GBM, "ecd_ray_legacy"],
+        "enum": [MODEL_ECD, MODEL_GBM, "ecd_ray_legacy", MODEL_STABLE_DIFFUSION],
         "default": MODEL_ECD,
         "title": "model_type",
         "description": "Select the model type.",

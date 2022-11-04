@@ -1,0 +1,10 @@
+input_features:
+  - name: text
+    type: text
+    preprocessing:
+      tokenizer: untokenized
+    encoder: passthrough
+output_features:
+  - name: image
+    type: binary
+model_type: sd

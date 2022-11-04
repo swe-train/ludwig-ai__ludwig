@@ -23,6 +23,7 @@ from ludwig.constants import (
     LOSS,
     MODEL_ECD,
     MODEL_GBM,
+    MODEL_STABLE_DIFFUSION,
     MODEL_TYPE,
     NAME,
     NUMBER,
@@ -52,7 +53,7 @@ from ludwig.schema.features.utils import get_input_feature_cls, get_output_featu
 from ludwig.schema.optimizers import get_optimizer_cls
 from ludwig.schema.preprocessing import PreprocessingConfig
 from ludwig.schema.split import get_split_cls
-from ludwig.schema.trainer import BaseTrainerConfig, ECDTrainerConfig, GBMTrainerConfig
+from ludwig.schema.trainer import BaseTrainerConfig, DummyTrainerConfig, ECDTrainerConfig, GBMTrainerConfig
 from ludwig.schema.utils import BaseMarshmallowConfig, convert_submodules
 from ludwig.utils.backward_compatibility import upgrade_config_dict_to_latest_version
 from ludwig.utils.misc_utils import set_default_value
@@ -167,6 +168,9 @@ class ModelConfig(BaseMarshmallowConfig):
                         raise ValidationError(
                             "GBM Models currently only support Binary, Category, and Number " "features"
                         )
+            elif upgraded_config_dict[MODEL_TYPE] == MODEL_STABLE_DIFFUSION:
+                self.model_type = MODEL_STABLE_DIFFUSION
+                self.trainer = DummyTrainerConfig()
 
         # ===== Combiner =====
         if COMBINER in upgraded_config_dict:

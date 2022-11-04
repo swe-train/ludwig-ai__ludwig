@@ -4,9 +4,9 @@ from typing import Dict, Optional, Tuple, Union
 import numpy as np
 import torch
 
-from diffusers import DiffusionPipeline
+from diffusers import DiffusionPipeline, StableDiffusionPipeline
 
-from ludwig.constants import MODEL_STABLE_DIFFUSION, TEXT
+from ludwig.constants import IMAGE, MODEL_STABLE_DIFFUSION, TEXT, TYPE
 from ludwig.globals import MODEL_WEIGHTS_FILE_NAME
 from ludwig.models.base import BaseModel
 from ludwig.schema.model_config import ModelConfig
@@ -30,14 +30,16 @@ class StableDiffusion(BaseModel):
 
         super().__init__(random_seed=self._random_seed)
 
-        if len(self.input_features) > 1 or self.input_features.type != TEXT:
+        input_features = self.config_obj.input_features.to_list()
+        if len(input_features) > 1 or input_features[0][TYPE] != TEXT:
             raise ValueError(
-                f"StableDiffusion only supports one input text feature, you specified: {self.input_features}"
+                f"StableDiffusion only supports one input text feature, you specified: {input_features}"
             )
-        if len(self.output_features) > 1 or self.output_features.type != IMAGE:
-            raise ValueError(
-                f"StableDiffusion only supports one output image feature, you specified: {self.output_features}"
-            )
+        # output_features = self.config_obj.output_features.to_list()
+        # if len(output_features) > 1 or output_features[0][TYPE] != IMAGE:
+        #     raise ValueError(
+        #         f"StableDiffusion only supports one output image feature, you specified: {output_features}"
+        #     )
 
         # ================ Inputs ================
         try:
@@ -47,14 +49,19 @@ class StableDiffusion(BaseModel):
                 f"An input feature has a name that conflicts with a class attribute of torch's ModuleDict: {e}"
             )
 
-        # ================ Outputs ================
-        self.output_features.update(
-            self.build_outputs(output_feature_configs=self.config_obj.output_features, input_size=self.input_shape[-1])
-        )
+        # # ================ Outputs ================
+        # self.output_features.update(
+        #     self.build_outputs(output_feature_configs=self.config_obj.output_features, input_size=self.input_shape[-1])
+        # )
 
-        self.diffuser_pipeline: DiffusionPipeline = DiffusionPipeline.from_pretrained(
-            self.config_obj.input_features[0].pretrained_model_name_or_path
+        self.diffuser_pipeline: DiffusionPipeline = StableDiffusionPipeline.from_pretrained(
+            # TODO: add to config
+            # self.config_obj.input_features[0].pretrained_model_name_or_path
+            "/home/ray/stable-diffusion-v1-5"
         )
+        self.diffuser_pipeline = self.diffuser_pipeline.to("cuda")
+
+        self.num_inference_steps = 2
 
 
     def forward(
@@ -65,10 +72,13 @@ class StableDiffusion(BaseModel):
         mask=None,
     ) -> Dict[str, torch.Tensor]:
         assert list(inputs.keys()) == self.input_features.keys()
-        output_predicted_images = self.diffuser_pipeline(inputs).images
+        # Convert dict to list of str
+        prompts = next(iter(inputs.values()))
+        output_predicted_images = self.diffuser_pipeline(prompts, num_inference_steps=self.num_inference_steps).images
         return output_predicted_images
 
     def save(self, save_path):
+        weights_save_path = os.path.join(save_path, MODEL_WEIGHTS_FILE_NAME)
         self.diffuser_pipeline.save(weights_save_path)
 
     def load(self, save_path):
