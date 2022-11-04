@@ -3,9 +3,10 @@ from ludwig.utils.registry import Registry
 from dataclasses import field
 from marshmallow_dataclass import dataclass
 from typing import List
-from ludwig.constants import TIED, NAME
+from ludwig.constants import TIED, NAME, TYPE
 from ludwig.schema.utils import BaseMarshmallowConfig
-from ludwig.schema.features import BaseInputFeatureConfig
+from ludwig.schema.features.base import BaseInputFeatureConfig
+from ludwig.schema.features.utils import get_input_feature_cls
 from marshmallow import fields, ValidationError
 
 input_type_registry = Registry()
@@ -29,6 +30,7 @@ def register_output_feature(name: str):
 
     return wrap
 
+
 @dataclass
 class InputFeaturesList(BaseMarshmallowConfig):
     """AudioFeatureInputFeature is a dataclass that configures the parameters used for an audio input feature."""
@@ -43,16 +45,30 @@ class InputFeaturesList(BaseMarshmallowConfig):
 def InputFeatureListDataclassField(features_list: list = []):
     class InputFeaturesListMarshmallowField(fields.Field):
         def _deserialize(self, value, attr, data, **kwargs):
-            if isinstance(value, dict):
-                feature_name = value[NAME]
-                tied = value[TIED]
-                if isinstance(tied, str) and str == feature_name:
-                    raise ValidationError("You are really stupid")
-            raise ValidationError("Field should be dict")
+            deserialized_features = []
+            if isinstance(value, list):
+                for feature in list:
+                    if isinstance(feature, dict):
+                        feature_name = feature[NAME]
+                        feature_type = feature[TYPE]
+
+                        # Validate tied feature is not itself:
+                        tied = feature[TIED]
+                        if isinstance(tied, str) and str == feature_name:
+                            raise ValidationError("You are really stupid")
+                        try:
+                            input_feature_cls = get_input_feature_cls(feature_type)
+                            deserialized_features += [input_feature_cls.Schema().load(feature)]
+                        except (TypeError, ValidationError) as error:
+                            raise ValidationError(
+                                f"Invalid feature params: {feature}, see `{feature_type}` definition. Error: {error}"
+                            )
+                return deserialized_features
+            raise ValidationError("Field should be list of features")
 
         @staticmethod
         def _jsonschema_type_mapping():
-        # def get_input_feature_jsonschema():
+            # def get_input_feature_jsonschema():
             input_feature_types = sorted(list(input_type_registry.keys()))
             return {
                 "type": "array",
@@ -68,16 +84,16 @@ def InputFeatureListDataclassField(features_list: list = []):
                     "required": ["name", "type"],
                 },
             }
-    
+
+    for input_feature_config in input_config_registry.keys():
+        cls = get_input_feature_cls(input_feature_config)
+
     return field(
         metadata={
             "marshmallow_field": InputFeaturesListMarshmallowField(
                 allow_none=False,
-                dump_default=features_list,
-                load_default=features_list,
             )
         },
-        default_factory=lambda: features_list,
     )
 
 
