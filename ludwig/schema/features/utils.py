@@ -46,11 +46,8 @@ def InputFeatureListDataclassField(features_list: list = []):
             if isinstance(value, dict):
                 feature_name = value[NAME]
                 tied = value[TIED]
-                if isinstance(tied, list):
-                    if feature_name in tied:
-                        raise ValidationError("You are really stupid")
-                else:
-                    raise ValidationError("You are stupid")
+                if isinstance(tied, str) and str == feature_name:
+                    raise ValidationError("You are really stupid")
             raise ValidationError("Field should be dict")
 
         @staticmethod
