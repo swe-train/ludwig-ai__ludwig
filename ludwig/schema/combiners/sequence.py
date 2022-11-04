@@ -9,7 +9,10 @@ from ludwig.schema.encoders.base import BaseEncoderConfig
 from ludwig.schema.encoders.utils import EncoderDataclassField
 from ludwig.schema.metadata.combiner_metadata import COMBINER_METADATA
 
+from ludwig.schema.combiners.utils import register_combiner_config
 
+
+@register_combiner_config("sequence")
 @dataclass(repr=False, order=True)
 class SequenceCombinerConfig(BaseCombinerConfig):
     """Parameters for sequence combiner."""

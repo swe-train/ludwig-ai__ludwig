@@ -12,6 +12,7 @@ from ludwig.schema.combiners.base import BaseCombinerConfig
 from marshmallow import fields, ValidationError
 
 combiner_registry = Registry()
+combiner_config_registry = Registry()
 
 
 def register_combiner(name: str):
@@ -22,10 +23,19 @@ def register_combiner(name: str):
     return wrap
 
 
-def CombinerOptionsDataclassField(default: dict = {"default": "concat"}):
+def register_combiner_config(name: str):
+    print(name)
+
+    def wrap(cls):
+        combiner_config_registry[name] = cls
+        return cls
+
+    return wrap
+
+
+def CombinerOptionsDataclassField(default: dict = {"type": "concat"}):
     class CombinerOptionsMarshmallowField(fields.Field):
         def _deserialize(self, value, attr, data, **kwargs):
-            combiner = None
             if isinstance(value, dict):
                 combiner_type = value[TYPE]
                 if combiner_type == "comparator":
@@ -38,7 +48,7 @@ def CombinerOptionsDataclassField(default: dict = {"default": "concat"}):
                         raise ValidationError("You are really really stupid")
 
                     try:
-                        combiner_cls = combiner_registry[combiner_type]
+                        combiner_cls = combiner_config_registry[combiner_type]
                         return combiner_cls.Schema().load(value)
 
                     except (TypeError, ValidationError) as error:
@@ -49,7 +59,7 @@ def CombinerOptionsDataclassField(default: dict = {"default": "concat"}):
 
         @staticmethod
         def _jsonschema_type_mapping():
-            combiner_types = sorted(list(combiner_registry.keys()))
+            combiner_types = sorted(list(combiner_config_registry.keys()))
             parameter_metadata = convert_metadata_to_json(COMBINER_METADATA[TYPE])
             return {
                 "type": "object",
@@ -68,8 +78,10 @@ def CombinerOptionsDataclassField(default: dict = {"default": "concat"}):
             }
 
     try:
+        print("test")
+        print(combiner_config_registry)
         combiner_type = default[TYPE]
-        combiner_cls = combiner_registry[combiner_type]
+        combiner_cls = combiner_config_registry[combiner_type]
         load_default = combiner_cls.Schema().load(default)
         dump_default = combiner_cls.Schema().dump(default)
 

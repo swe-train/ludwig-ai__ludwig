@@ -5,8 +5,10 @@ from marshmallow_dataclass import dataclass
 from ludwig.schema import utils as schema_utils
 from ludwig.schema.combiners.base import BaseCombinerConfig
 from ludwig.schema.metadata.combiner_metadata import COMBINER_METADATA
+from ludwig.schema.combiners.utils import register_combiner_config
 
 
+@register_combiner_config("comparator")
 @dataclass(repr=False, order=True)
 class ComparatorCombinerConfig(BaseCombinerConfig):
     """Parameters for comparator combiner."""
