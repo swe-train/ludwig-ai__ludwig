@@ -19,7 +19,7 @@ from ludwig.constants import (
     TYPE,
 )
 from ludwig.features.feature_registries import output_type_registry
-from ludwig.schema import get_schema, validate_config
+from ludwig.schema import get_schema, validate_config, add_feature_validation
 from ludwig.schema.defaults.defaults import DefaultsConfig
 from ludwig.schema.features.preprocessing.audio import AudioPreprocessingConfig
 from ludwig.schema.features.preprocessing.bag import BagPreprocessingConfig
@@ -379,3 +379,41 @@ def test_schema_no_duplicates():
                 "allOf"
             ][0]["then"]["properties"]
         )
+
+
+def test_add_feature_validation():
+    config = {
+        "model_type": "ecd",
+        "input_features": [
+            category_feature(name="test_cat_1", tied="test_num_1"),
+            category_feature(name="test_cat_2", tied="test_num_2"),
+            number_feature(name="test_num_1", tied="test_cat_1"),
+            number_feature(name="test_num_2", tied="test_cat_2"),
+        ],
+        "output_features": [
+            binary_feature(name="test_bin"),
+            category_feature(output_feature=True, dependencies=["test_bin"])
+        ],
+        "combiner": {
+            "type": "comparator",
+            "entity_1": ["test_cat_1", "test_cat_2"],
+            "entity_2": ["test_num_1", "test_num_2"]
+        }
+    }
+
+    # Validate good settings
+    validate_config(config)
+
+    config["input_features"][0]["tied"] = "banana"
+
+    # Tied must be one of the input features
+    with pytest.raises(ValidationError):
+        validate_config(config)
+
+    # config["input_features"][0]["tied"] = config["input_features"][0]["name"]
+    #
+    # # Cannot set tied to own name
+    # with pytest.raises(ValidationError):
+    #     validate_config(config)
+
+
