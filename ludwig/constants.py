@@ -236,6 +236,7 @@ AUDIO_FEATURE_KEYS = [
 MODEL_TYPE = "model_type"
 MODEL_ECD = "ecd"
 MODEL_GBM = "gbm"
+MODEL_STABLE_DIFFUSION = "sd"
 DASK_MODULE_NAME = "dask.dataframe"
 
 PREPROCESSOR = "preprocessor"
