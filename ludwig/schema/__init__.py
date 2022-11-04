@@ -31,6 +31,7 @@ from ludwig.constants import (
     INPUT_FEATURES,
     MODEL_ECD,
     MODEL_TYPE,
+    NAME,
     OUTPUT_FEATURES,
     PREPROCESSING,
     SPLIT,
@@ -43,6 +44,29 @@ from ludwig.schema.preprocessing import get_preprocessing_jsonschema
 from ludwig.schema.trainer import get_model_type_jsonschema, get_trainer_jsonschema
 
 VALIDATION_LOCK = Lock()
+
+
+def add_feature_validation(schema: dict, config: dict) -> None:
+
+    input_feature_names = [feature[NAME] for feature in config[INPUT_FEATURES]]
+    output_feature_names = [feature[NAME] for feature in config[OUTPUT_FEATURES]]
+
+    # Add tied validation
+    input_feature_schemas = schema["properties"][INPUT_FEATURES]["items"]["allOf"]
+    for feature_schema in input_feature_schemas:
+        feature_schema["then"]["properties"]["tied"]["enum"] = input_feature_names
+
+    # Add entities validation
+    combiner_schemas = schema["properties"][COMBINER]["allOf"]
+    for combiner_type in combiner_schemas:
+        if combiner_type["if"]["properties"]["type"]["const"] == "comparator":
+            combiner_type["then"]["properties"]["entity_1"]["items"]["enum"] = input_feature_names
+            combiner_type["then"]["properties"]["entity_2"]["items"]["enum"] = input_feature_names
+
+    # Add dependencies validation
+    output_feature_schemas = schema["properties"][OUTPUT_FEATURES]["items"]["allOf"]
+    for feature_schema in output_feature_schemas:
+        feature_schema["then"]["properties"]["dependencies"]["items"]["enum"] = output_feature_names
 
 
 @lru_cache(maxsize=2)
@@ -90,7 +114,10 @@ def validate_config(config):
     splitter = get_splitter(**updated_config.get(PREPROCESSING, {}).get(SPLIT, {}))
     splitter.validate(updated_config)
 
+    schema = get_schema(model_type=model_type)
+    add_feature_validation(schema, config)
+
     with VALIDATION_LOCK:
         # There is a race condition during schema validation that can cause the marshmallow schema class to
         # be missing during validation if more than one thread is trying to validate at once.
-        validate(instance=updated_config, schema=get_schema(model_type=model_type), cls=get_validator())
+        validate(instance=updated_config, schema=schema, cls=get_validator())
