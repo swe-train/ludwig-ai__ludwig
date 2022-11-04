@@ -31,17 +31,6 @@ def register_output_feature(name: str):
     return wrap
 
 
-@dataclass
-class InputFeaturesList(BaseMarshmallowConfig):
-    """AudioFeatureInputFeature is a dataclass that configures the parameters used for an audio input feature."""
-
-    input_features: List[BaseInputFeatureConfig] = schema_utils.InputFeatureList()
-
-    # @validates_schema(pass_original=True)
-    # def validate_tied():
-    #     pass
-
-
 def InputFeatureListDataclassField():
     class InputFeaturesListMarshmallowField(fields.Field):
         def _deserialize(self, value, attr, data, **kwargs):
@@ -134,6 +123,17 @@ def get_input_feature_conds():
         feature_cond = schema_utils.create_cond({"type": feature_type}, feature_props)
         conds.append(feature_cond)
     return conds
+
+
+@dataclass
+class InputFeaturesList(BaseMarshmallowConfig):
+    """AudioFeatureInputFeature is a dataclass that configures the parameters used for an audio input feature."""
+
+    input_features: List[BaseInputFeatureConfig] = InputFeatureListDataclassField()
+
+    # @validates_schema(pass_original=True)
+    # def validate_tied():
+    #     pass
 
 
 def get_output_feature_jsonschema():
