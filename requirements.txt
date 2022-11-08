@@ -34,6 +34,12 @@ gpustat
 rich~=12.4.4
 packaging
 
+# S4 dependencies
+einops
+opt_einsum
+pykeops 
+cmake
+
 # new data format support
 xlwt            # excel
 xlrd            # excel
