@@ -1,4 +1,7 @@
-"""Standalone version of Structured (Sequence) State Space (S4) model."""
+"""Standalone version of Structured (Sequence) State Space (S4) model.
+
+Reference: https://github.com/HazyResearch/state-spaces/blob/main/src/models/s4/s4.py
+"""
 import logging
 from functools import partial
 import math
@@ -17,16 +20,8 @@ log = logging.getLogger(__name__)
 
 """ Cauchy and Vandermonde kernels """
 
-try:  # Try CUDA extension
-    from extensions.cauchy.cauchy import cauchy_mult
-
-    has_cauchy_extension = True
-except ImportError:
-    log.warning(
-        "CUDA extension for cauchy multiplication not found. Install by going to extensions/cauchy/ and running "
-        "`python setup.py install`. This should speed up end-to-end training by 10-50%"
-    )
-    has_cauchy_extension = False
+# Skipping this step: https://github.com/HazyResearch/state-spaces/blob/main/src/models/s4/s4.py#L35-L42
+has_cauchy_extension = False
 
 try:  # Try pykeops
     import pykeops  # noqa: F401
@@ -820,9 +815,7 @@ class SSKernelNPLR(OptimModule):
         v = B.unsqueeze(-3) * C.unsqueeze(-4)  # (B+1+R, C+R, H, N)
 
         # Calculate resolvent at omega
-        if has_cauchy_extension and z.dtype == torch.cfloat and not self.keops:
-            r = cauchy_mult(v, z, w, symmetric=True)
-        elif has_pykeops:
+        if has_pykeops:
             r = cauchy_conj(v, z, w)
         else:
             r = cauchy_naive(v, z, w)
