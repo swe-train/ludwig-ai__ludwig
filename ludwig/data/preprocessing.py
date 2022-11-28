@@ -1426,6 +1426,9 @@ def smote(
 ):
     dataset_df = dataset_df[[f[PROC_COLUMN] for f in input_features + output_features]]
 
+    if backend.df_engine.partitioned:
+        dataset_df = backend.df_engine.compute(dataset_df)
+
     # store original dtypes
     dtypes = dataset_df.dtypes
 
@@ -1444,6 +1447,8 @@ def smote(
 
     # restore original dtypes
     df_oversampled = df_oversampled.astype(dtypes.to_dict())
+
+    df_oversampled = backend.df_engine.from_pandas(df_oversampled)
 
     return df_oversampled
 
