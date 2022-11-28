@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 import torch
+from imblearn.over_sampling import SMOTENC
 
 from ludwig.backend import Backend, LOCAL_BACKEND
 from ludwig.constants import (
@@ -1417,6 +1418,36 @@ def balance_data(dataset_df: DataFrame, output_features: List[Dict], preprocessi
     return balanced_df
 
 
+def smote(
+    dataset_df: DataFrame,
+    input_features: List[Dict],
+    output_features: List[Dict],
+    backend: Backend,
+):
+    dataset_df = dataset_df[[f[PROC_COLUMN] for f in input_features + output_features]]
+
+    # store original dtypes
+    dtypes = dataset_df.dtypes
+
+    assert not backend.df_engine.partitioned
+
+    category_feats = [i for i, f in enumerate(input_features) if f["type"] == "category"]
+    sm = SMOTENC(categorical_features=category_feats, random_state=42)
+
+    target = output_features[0][PROC_COLUMN]
+    X_train_oversampled, y_train_oversampled = sm.fit_resample(dataset_df.drop(columns=[target]), dataset_df[target])
+
+    df_oversampled = pd.DataFrame(
+        np.hstack([X_train_oversampled, np.expand_dims(y_train_oversampled, axis=1)]),
+        columns=dataset_df.columns,
+    )
+
+    # restore original dtypes
+    df_oversampled = df_oversampled.astype(dtypes.to_dict())
+
+    return df_oversampled
+
+
 def precompute_fill_value(dataset_cols, feature, preprocessing_parameters, backend):
     """Precomputes the fill value for a feature.
 
@@ -1870,6 +1901,9 @@ def _preprocess_df_for_training(
     logger.info("Building dataset: DONE")
     if preprocessing_params["oversample_minority"] or preprocessing_params["undersample_majority"]:
         training_set = balance_data(training_set, config["output_features"], preprocessing_params, backend)
+
+    if preprocessing_params["smote"]:
+        training_set = smote(training_set, config["input_features"], config["output_features"], backend)
 
     return training_set, test_set, validation_set, training_set_metadata
 

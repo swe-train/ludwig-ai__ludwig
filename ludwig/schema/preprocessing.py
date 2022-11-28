@@ -33,6 +33,11 @@ class PreprocessingConfig(schema_utils.BaseMarshmallowConfig):
         parameter_metadata=PREPROCESSING_METADATA["undersample_majority"],
     )
 
+    smote: bool = schema_utils.Boolean(
+        default=False,
+        description="If True, SMOTE will be used to oversample the minority class.",
+    )
+
     split: BaseSplitConfig = SplitDataclassField(
         default=RANDOM,
     )
