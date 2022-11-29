@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 import torch
-from imblearn.over_sampling import SMOTENC
+from imblearn.over_sampling import SMOTE, SMOTENC
 
 from ludwig.backend import Backend, LOCAL_BACKEND
 from ludwig.constants import (
@@ -1432,8 +1432,6 @@ def smote(
     # store original dtypes
     dtypes = dataset_df.dtypes
 
-    assert not backend.df_engine.partitioned
-
     category_feats = [i for i, f in enumerate(input_features) if f["type"] == "category"]
     sm = SMOTENC(categorical_features=category_feats, random_state=42)
 
@@ -1907,8 +1905,10 @@ def _preprocess_df_for_training(
     if preprocessing_params["oversample_minority"] or preprocessing_params["undersample_majority"]:
         training_set = balance_data(training_set, config["output_features"], preprocessing_params, backend)
 
+    breakpoint()
     if preprocessing_params["smote"]:
         training_set = smote(training_set, config["input_features"], config["output_features"], backend)
+    breakpoint()
 
     return training_set, test_set, validation_set, training_set_metadata
 
