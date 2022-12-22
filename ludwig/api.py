@@ -435,6 +435,8 @@ class LudwigModel:
             `(training_set, validation_set, test_set)`.
             `output_directory` filepath to where training results are stored.
         """
+        logger.error(f"called train().")
+        logger.error(f"in train(), model_resume_path: {model_resume_path}")
         if HYPEROPT in self._user_config:
             print_boxed("WARNING")
             logger.info(HYPEROPT_WARNING)
@@ -443,14 +445,17 @@ class LudwigModel:
         if model_resume_path is not None:
             if path_exists(model_resume_path):
                 output_directory = model_resume_path
+                logger.error(f"in train(), set output_directory (from model_resume_path): {output_directory}")
             else:
                 if self.backend.is_coordinator():
                     logger.info(
                         f"Model resume path '{model_resume_path}' does not exist, starting training from scratch"
                     )
+                logger.error(f"in train(), model_resume_path does not exist")
                 model_resume_path = None
 
         if model_resume_path is None:
+            logger.error(f"in train(), model_resume_path was None, so setting an output directory from scratch.")
             if self.backend.is_coordinator():
                 output_directory = get_output_directory(output_directory, experiment_name, model_name)
             else:
@@ -545,6 +550,7 @@ class LudwigModel:
                     random_seed=random_seed,
                     **kwargs,
                 )
+                logger.error(f"Finished preprocessing.")
                 (training_set, validation_set, test_set, training_set_metadata) = preprocessed_data
 
             self.training_set_metadata = training_set_metadata
@@ -572,7 +578,9 @@ class LudwigModel:
 
             # Build model if not provided
             # if it was provided it means it was already loaded
+            logger.error(f"self.model: {self.model}")
             if not self.model:
+                logger.error(f"self.model was None, creating a model.")
                 if self.backend.is_coordinator():
                     print_boxed("MODEL")
                 # update model config with metadata properties derived from training set
@@ -580,6 +588,8 @@ class LudwigModel:
                 logger.info("Warnings and other logs:")
                 self.model = LudwigModel.create_model(self.config_obj, random_seed=random_seed)
                 set_saved_weights_in_checkpoint_flag(self.config_obj)
+
+            logger.error(f"Finished creating a model.")
 
             with self.backend.create_trainer(
                 model=self.model,
@@ -591,6 +601,7 @@ class LudwigModel:
                 callbacks=train_callbacks,
                 random_seed=random_seed,
             ) as trainer:
+                logger.error(f"Created trainer.")
                 # auto tune batch size
                 if (
                     self.config_obj.trainer.to_dict().get(BATCH_SIZE, None) == AUTO
@@ -634,12 +645,14 @@ class LudwigModel:
                     )
 
                 try:
+                    logger.error(f"Training..")
                     train_stats = trainer.train(
                         training_set,
                         validation_set=validation_set,
                         test_set=test_set,
                         save_path=model_dir,
                     )
+                    logger.error(f"Finised training..")
 
                     # Calibrates output feature probabilities on validation set if calibration is enabled.
                     # Must be done after training, and before final model parameters are saved.
@@ -1186,6 +1199,8 @@ class LudwigModel:
             print_boxed("WARNING")
             logger.info(HYPEROPT_WARNING)
 
+        logger.error(f"api.py: model_load_path: {model_load_path}")
+
         (train_stats, preprocessed_data, output_directory) = self.train(
             dataset=dataset,
             training_set=training_set,
@@ -1207,6 +1222,8 @@ class LudwigModel:
             output_directory=output_directory,
             random_seed=random_seed,
         )
+
+        logger.error(f"api.py: finished training")
 
         (training_set, validation_set, test_set, training_set_metadata) = preprocessed_data
 

@@ -53,7 +53,8 @@ def setup_tests(request):
         yield mock_init_ray_local
 
 
-@pytest.fixture()
+@pytest.fixture()  # Does 1 teardown on the parameterized test, fails sometimes.
+# @pytest.fixture  # Does 0 teardowns on the parameterized test, fails sometimes.
 def csv_filename():
     """Yields a csv filename for holding temporary data."""
     with tempfile.TemporaryDirectory() as tmpdir:

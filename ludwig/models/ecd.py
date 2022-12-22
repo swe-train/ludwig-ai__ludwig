@@ -142,13 +142,21 @@ class ECD(BaseModel):
 
     def save(self, save_path):
         """Saves the model to the given path."""
+        logger.error("model.save() was called.")
         weights_save_path = os.path.join(save_path, MODEL_WEIGHTS_FILE_NAME)
         torch.save(self.state_dict(), weights_save_path)
+
+        logger.error(f"model.save() save_path: {save_path}")
+        logger.error(f"model.save() os.listdir(save_path): {os.listdir(save_path)}")
 
     def load(self, save_path):
         """Loads the model from the given path."""
         weights_save_path = os.path.join(save_path, MODEL_WEIGHTS_FILE_NAME)
         device = torch.device(get_torch_device())
+
+        logger.error(f"loading from save_path: {save_path}")
+        logger.error(f"model.load() os.listdir(save_path): {os.listdir(save_path)}")
+
         with open_file(weights_save_path, "rb") as f:
             self.load_state_dict(torch.load(f, map_location=device))
 

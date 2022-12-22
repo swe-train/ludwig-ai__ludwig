@@ -567,6 +567,7 @@ class Trainer(BaseTrainer):
 
         Returns whether the trainer should early stop, based on validation metrics history.
         """
+        logger.error(f"Running evaluation.")
         start_time = time.time()
         self.callback(lambda c: c.on_eval_start(self, progress_tracker, save_path))
 
@@ -610,7 +611,9 @@ class Trainer(BaseTrainer):
             step=progress_tracker.steps,
         )
 
+        logger.error(f"Validation set is None?")
         if validation_set is not None:
+            logger.error(f"Validation set is NOT None")
             self.callback(lambda c: c.on_validation_start(self, progress_tracker, save_path))
 
             # eval metrics on validation set
@@ -657,6 +660,7 @@ class Trainer(BaseTrainer):
         # ================ Validation Logic ================
         should_break = False
         if validation_set is not None and validation_set.size > 0:
+            logger.error(f"Checking progress on validation")
             should_break = self.check_progress_on_validation(
                 progress_tracker,
                 self.validation_field,
@@ -678,6 +682,7 @@ class Trainer(BaseTrainer):
                 self.skip_save_model,
             )
         else:
+            logger.error(f"No validation.")
             # There's no validation, so we save the model.
             if self.is_coordinator() and not self.skip_save_model:
                 self.model.save(save_path)
@@ -777,12 +782,12 @@ class Trainer(BaseTrainer):
 
         # ================ Resume logic ================
         if self.resume and self.resume_files_exist(training_progress_tracker_path, training_checkpoints_path):
-            logger.info("Resuming training from previous run.")
+            logger.error("Resuming training from previous run.")
             progress_tracker = self.resume_training_progress_tracker(training_progress_tracker_path)
             if self.is_coordinator():
                 self.resume_weights_and_optimizer(training_checkpoints_path, checkpoint)
         else:
-            logger.info("Creating fresh model training run.")
+            logger.error("Creating fresh model training run.")
             progress_tracker = get_new_progress_tracker(
                 batch_size=self.batch_size,
                 learning_rate=self.base_learning_rate,
@@ -881,6 +886,7 @@ class Trainer(BaseTrainer):
                         final_steps_per_checkpoint,
                         early_stopping_steps,
                     )
+                    logger.error(f"Finish train loop.")
 
                     # ================ Post Training Epoch ================
                     progress_tracker.epoch += 1
@@ -898,9 +904,11 @@ class Trainer(BaseTrainer):
 
                     # Early stop if needed.
                     if should_break:
+                        logger.error(f"Should break.")
                         break
         finally:
             # ================ Finished Training ================
+            logger.error(f"Finished training (finally).")
             self.callback(
                 lambda c: c.on_trainer_train_teardown(self, progress_tracker, save_path, self.is_coordinator()),
                 coordinator_only=False,
@@ -916,9 +924,11 @@ class Trainer(BaseTrainer):
             if self.is_coordinator() and not self.skip_save_progress:
                 checkpoint_manager.close()
 
+        logger.error(f"Loading best weights from checkpoint?")
         # Load the best weights from saved checkpoint
         if self.is_coordinator() and not self.skip_save_model:
             self.model.load(save_path)
+        logger.error(f"model.load() was successful")
 
         # restore original sigint signal handler
         if self.original_sigint_handler and threading.current_thread() == threading.main_thread():
@@ -1023,6 +1033,7 @@ class Trainer(BaseTrainer):
                 )
 
             if progress_tracker.steps % final_steps_per_checkpoint == 0:
+                logger.error(f"Checkpointing the model.")
                 # Checkpoint the model.
                 if self.is_coordinator() and not self.skip_save_progress:
                     checkpoint_manager.save(progress_tracker.steps)
@@ -1140,11 +1151,20 @@ class Trainer(BaseTrainer):
         should_break = False
         # record how long its been since an improvement
         improved = get_improved_fun(validation_metric)
+        logger.error(f"progress_tracker.validation_metrics: {progress_tracker.validation_metrics}")
         validation_metrics = progress_tracker.validation_metrics[validation_output_feature_name]
+        logger.error(f"validation_metrics: {validation_metrics}")
         last_validation_metric = validation_metrics[validation_metric][-1]
+        logger.error(f"last_validation_metric: {last_validation_metric}")
         last_validation_metric_value = last_validation_metric[-1]
+        if last_validation_metric_value != last_validation_metric_value:
+            last_validation_metric_value = 0
+        logger.error(f"last_validation_metric_value: {last_validation_metric_value}")
+
+        logger.error(f"progress_tracker.best_eval_metric: {progress_tracker.best_eval_metric}")
 
         if improved(last_validation_metric_value, progress_tracker.best_eval_metric):
+            logger.error(f"We improved.")
             progress_tracker.last_improvement_steps = progress_tracker.steps
             progress_tracker.best_eval_metric = last_validation_metric_value
 
@@ -1153,6 +1173,8 @@ class Trainer(BaseTrainer):
                 logger.info(
                     f"Validation {validation_metric} on {validation_output_feature_name} improved, model saved.\n"
                 )
+        else:
+            logger.error(f"We did not improve.")
 
         progress_tracker.last_improvement = progress_tracker.steps - progress_tracker.last_improvement_steps
         if progress_tracker.last_improvement != 0 and self.is_coordinator():

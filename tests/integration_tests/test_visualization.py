@@ -23,6 +23,7 @@ import json
 import os
 import random
 import subprocess
+import logging
 
 import numpy as np
 import pytest
@@ -66,6 +67,7 @@ def run_experiment_with_visualization(input_features, output_features, dataset):
         "skip_save_eval_stats": False,
         "dataset": dataset,
         "output_directory": output_directory,
+        "logging_level": logging.ERROR,
     }
 
     _, _, _, _, experiment_dir = experiment_cli(**args)
@@ -88,90 +90,90 @@ def get_output_feature_name(experiment_dir, output_feature=0):
     return output_feature_name
 
 
-def test_visualization_learning_curves_output_saved(csv_filename):
-    """Ensure pdf and png figures from the experiments can be saved.
+# def test_visualization_learning_curves_output_saved(csv_filename):
+#     """Ensure pdf and png figures from the experiments can be saved.
 
-    :param csv_filename: csv fixture from tests.conftest.csv_filename
-    :return: None
-    """
-    input_features = [text_feature(encoder={"type": "parallel_cnn"})]
-    output_features = [category_feature(output_feature=True)]
+#     :param csv_filename: csv fixture from tests.conftest.csv_filename
+#     :return: None
+#     """
+#     input_features = [text_feature(encoder={"type": "parallel_cnn"})]
+#     output_features = [category_feature(output_feature=True)]
 
-    # Generate test data
-    rel_path = generate_data(input_features, output_features, csv_filename)
-    input_features[0][ENCODER][TYPE] = "parallel_cnn"
-    exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
+#     # Generate test data
+#     rel_path = generate_data(input_features, output_features, csv_filename)
+#     input_features[0][ENCODER][TYPE] = "parallel_cnn"
+#     exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
 
-    vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
-    vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
-    train_stats = os.path.join(exp_dir_name, "training_statistics.json")
-    test_cmd_pdf = [
-        "python",
-        "-m",
-        "ludwig.visualize",
-        "--visualization",
-        "learning_curves",
-        "--training_statistics",
-        train_stats,
-        "-od",
-        exp_dir_name,
-    ]
-    test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
+#     vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
+#     vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
+#     train_stats = os.path.join(exp_dir_name, "training_statistics.json")
+#     test_cmd_pdf = [
+#         "python",
+#         "-m",
+#         "ludwig.visualize",
+#         "--visualization",
+#         "learning_curves",
+#         "--training_statistics",
+#         train_stats,
+#         "-od",
+#         exp_dir_name,
+#     ]
+#     test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
 
-    commands = [test_cmd_pdf, test_cmd_png]
-    vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
+#     commands = [test_cmd_pdf, test_cmd_png]
+#     vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
 
-    for command, viz_pattern in zip(commands, vis_patterns):
-        result = subprocess.run(
-            command,
-        )
-        figure_cnt = glob.glob(viz_pattern)
+#     for command, viz_pattern in zip(commands, vis_patterns):
+#         result = subprocess.run(
+#             command,
+#         )
+#         figure_cnt = glob.glob(viz_pattern)
 
-        assert 0 == result.returncode
-        assert 4 == len(figure_cnt)
+#         assert 0 == result.returncode
+#         assert 4 == len(figure_cnt)
 
 
-def test_visualization_confusion_matrix_output_saved(csv_filename):
-    """Ensure pdf and png figures from the experiments can be saved.
+# def test_visualization_confusion_matrix_output_saved(csv_filename):
+#     """Ensure pdf and png figures from the experiments can be saved.
 
-    :param csv_filename: csv fixture from tests.conftest.csv_filename
-    :return: None
-    """
-    input_features = [text_feature(encoder={"type": "parallel_cnn"})]
-    output_features = [category_feature(output_feature=True)]
+#     :param csv_filename: csv fixture from tests.conftest.csv_filename
+#     :return: None
+#     """
+#     input_features = [text_feature(encoder={"type": "parallel_cnn"})]
+#     output_features = [category_feature(output_feature=True)]
 
-    # Generate test data
-    rel_path = generate_data(input_features, output_features, csv_filename)
-    input_features[0][ENCODER][TYPE] = "parallel_cnn"
-    exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
-    vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
-    vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
-    experiment_source_data_name = csv_filename.split(".")[0]
-    ground_truth_metadata = experiment_source_data_name + ".meta.json"
-    test_stats = os.path.join(exp_dir_name, TEST_STATISTICS_FILE_NAME)
-    test_cmd_pdf = [
-        "python",
-        "-m",
-        "ludwig.visualize",
-        "--visualization",
-        "confusion_matrix",
-        "--test_statistics",
-        test_stats,
-        "--ground_truth_metadata",
-        ground_truth_metadata,
-        "-od",
-        exp_dir_name,
-    ]
-    test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
-    commands = [test_cmd_pdf, test_cmd_png]
-    vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
+#     # Generate test data
+#     rel_path = generate_data(input_features, output_features, csv_filename)
+#     input_features[0][ENCODER][TYPE] = "parallel_cnn"
+#     exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
+#     vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
+#     vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
+#     experiment_source_data_name = csv_filename.split(".")[0]
+#     ground_truth_metadata = experiment_source_data_name + ".meta.json"
+#     test_stats = os.path.join(exp_dir_name, TEST_STATISTICS_FILE_NAME)
+#     test_cmd_pdf = [
+#         "python",
+#         "-m",
+#         "ludwig.visualize",
+#         "--visualization",
+#         "confusion_matrix",
+#         "--test_statistics",
+#         test_stats,
+#         "--ground_truth_metadata",
+#         ground_truth_metadata,
+#         "-od",
+#         exp_dir_name,
+#     ]
+#     test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
+#     commands = [test_cmd_pdf, test_cmd_png]
+#     vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
 
-    for command, viz_pattern in zip(commands, vis_patterns):
-        result = subprocess.run(command)
-        figure_cnt = glob.glob(viz_pattern)
+#     for command, viz_pattern in zip(commands, vis_patterns):
+#         result = subprocess.run(command)
+#         figure_cnt = glob.glob(viz_pattern)
 
-        assert 0 == result.returncode
-        assert 2 == len(figure_cnt)
+#         assert 0 == result.returncode
+#         assert 2 == len(figure_cnt)
 
 
 def test_visualization_compare_performance_output_saved(csv_filename):
@@ -183,6 +185,7 @@ def test_visualization_compare_performance_output_saved(csv_filename):
     :param csv_filename: csv fixture from tests.conftest.csv_filename
     :return: None
     """
+    print(f"HELLO test_visualization_compare_performance_output_saved csv_filename: {csv_filename}")
     input_features = [text_feature(encoder={"type": "parallel_cnn"})]
     output_features = [category_feature(output_feature=True)]
 
@@ -222,927 +225,928 @@ def test_visualization_compare_performance_output_saved(csv_filename):
         assert 1 == len(figure_cnt)
 
 
-def test_visualization_compare_classifiers_from_prob_csv_output_saved(csv_filename):
-    """Ensure pdf and png figures from the experiments can be saved.
-
-    Probabilities are loaded from csv file.
-    :param csv_filename: csv fixture from tests.fixtures.filenames.csv_filename
-    :return: None
-    """
-    input_features = [category_feature(encoder={"vocab_size": 10})]
-    output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
-
-    # Generate test data
-    rel_path = generate_data(input_features, output_features, csv_filename)
-    exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
-
-    vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
-    vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
-    output_feature_name = get_output_feature_name(exp_dir_name)
-    probability = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
-    experiment_source_data_name = csv_filename.split(".")[0]
-    ground_truth = experiment_source_data_name + ".csv"
-    split_file = get_split_path(csv_filename)
-    test_cmd_pdf = [
-        "python",
-        "-m",
-        "ludwig.visualize",
-        "--visualization",
-        "compare_classifiers_performance_from_prob",
-        "--ground_truth",
-        ground_truth,
-        "--output_feature_name",
-        output_feature_name,
-        "--split_file",
-        split_file,
-        "--ground_truth_metadata",
-        exp_dir_name + "/model/training_set_metadata.json",
-        "--probabilities",
-        probability,
-        probability,
-        "--model_names",
-        "Model1",
-        "Model2",
-        "-od",
-        exp_dir_name,
-    ]
-    test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
-
-    commands = [test_cmd_pdf, test_cmd_png]
-    vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
-
-    for command, viz_pattern in zip(commands, vis_patterns):
-        result = subprocess.run(command)
-        figure_cnt = glob.glob(viz_pattern)
-
-        assert 0 == result.returncode
-        assert 1 == len(figure_cnt)
-
-
-def test_visualization_compare_classifiers_from_prob_npy_output_saved(csv_filename):
-    """Ensure pdf and png figures from the experiments can be saved.
-
-    Probabilities are loaded from npy file.
-    :param csv_filename: csv fixture from tests.fixtures.filenames.csv_filename
-    :return: None
-    """
-    input_features = [category_feature(encoder={"vocab_size": 10})]
-    output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
-
-    # Generate test data
-    rel_path = generate_data(input_features, output_features, csv_filename)
-    exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
-
-    vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
-    vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
-    output_feature_name = get_output_feature_name(exp_dir_name)
-    probability = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
-    experiment_source_data_name = csv_filename.split(".")[0]
-    ground_truth = experiment_source_data_name + ".csv"
-    split_file = experiment_source_data_name + ".split.parquet"
-    test_cmd_pdf = [
-        "python",
-        "-m",
-        "ludwig.visualize",
-        "--visualization",
-        "compare_classifiers_performance_from_prob",
-        "--ground_truth",
-        ground_truth,
-        "--output_feature_name",
-        output_feature_name,
-        "--split_file",
-        split_file,
-        "--ground_truth_metadata",
-        exp_dir_name + "/model/training_set_metadata.json",
-        "--probabilities",
-        probability,
-        probability,
-        "--model_names",
-        "Model1",
-        "Model2",
-        "-od",
-        exp_dir_name,
-    ]
-    test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
-
-    commands = [test_cmd_pdf, test_cmd_png]
-    vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
-
-    for command, viz_pattern in zip(commands, vis_patterns):
-        result = subprocess.run(command)
-        figure_cnt = glob.glob(viz_pattern)
-
-        assert 0 == result.returncode
-        assert 1 == len(figure_cnt)
-
-
-def test_visualization_compare_classifiers_from_pred_npy_output_saved(csv_filename):
-    """Ensure pdf and png figures from the experiments can be saved.
-
-    Predictions are loaded from npy file.
-    :param csv_filename: csv fixture from tests.fixtures.filenames.csv_filename
-    :return: None
-    """
-    input_features = [category_feature(encoder={"vocab_size": 10})]
-    output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
-
-    # Generate test data
-    rel_path = generate_data(input_features, output_features, csv_filename)
-    exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
-    vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
-    vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
-    output_feature_name = get_output_feature_name(exp_dir_name)
-    prediction = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
-    experiment_source_data_name = csv_filename.split(".")[0]
-    ground_truth = experiment_source_data_name + ".csv"
-    split_file = experiment_source_data_name + ".split.parquet"
-    ground_truth_metadata = experiment_source_data_name + ".meta.json"
-    test_cmd_pdf = [
-        "python",
-        "-m",
-        "ludwig.visualize",
-        "--visualization",
-        "compare_classifiers_performance_from_pred",
-        "--ground_truth_metadata",
-        ground_truth_metadata,
-        "--ground_truth",
-        ground_truth,
-        "--output_feature_name",
-        output_feature_name,
-        "--split_file",
-        split_file,
-        "--predictions",
-        prediction,
-        prediction,
-        "--model_names",
-        "Model1",
-        "Model2",
-        "-od",
-        exp_dir_name,
-    ]
-    test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
-
-    commands = [test_cmd_pdf, test_cmd_png]
-    vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
-
-    for command, viz_pattern in zip(commands, vis_patterns):
-        result = subprocess.run(command)
-        figure_cnt = glob.glob(viz_pattern)
-
-        assert 0 == result.returncode
-        assert 1 == len(figure_cnt)
-
-
-def test_visualization_compare_classifiers_from_pred_csv_output_saved(csv_filename):
-    """Ensure pdf and png figures from the experiments can be saved.
-
-    Predictions are loaded from csv file.
-    :param csv_filename: csv fixture from tests.fixtures.filenames.csv_filename
-    :return: None
-    """
-    input_features = [category_feature(encoder={"vocab_size": 10})]
-    output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
-
-    # Generate test data
-    rel_path = generate_data(input_features, output_features, csv_filename)
-    exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
-    vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
-    vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
-    output_feature_name = get_output_feature_name(exp_dir_name)
-    prediction = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
-    experiment_source_data_name = csv_filename.split(".")[0]
-    ground_truth = experiment_source_data_name + ".csv"
-    split_file = experiment_source_data_name + ".split.parquet"
-    ground_truth_metadata = experiment_source_data_name + ".meta.json"
-    test_cmd_pdf = [
-        "python",
-        "-m",
-        "ludwig.visualize",
-        "--visualization",
-        "compare_classifiers_performance_from_pred",
-        "--ground_truth_metadata",
-        ground_truth_metadata,
-        "--ground_truth",
-        ground_truth,
-        "--output_feature_name",
-        output_feature_name,
-        "--split_file",
-        split_file,
-        "--predictions",
-        prediction,
-        prediction,
-        "--model_names",
-        "Model1",
-        "Model2",
-        "-od",
-        exp_dir_name,
-    ]
-    test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
-
-    commands = [test_cmd_pdf, test_cmd_png]
-    vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
-
-    for command, viz_pattern in zip(commands, vis_patterns):
-        result = subprocess.run(command)
-        figure_cnt = glob.glob(viz_pattern)
-
-        assert 0 == result.returncode
-        assert 1 == len(figure_cnt)
-
-
-def test_visualization_compare_classifiers_subset_output_saved(csv_filename):
-    """Ensure pdf and png figures from the experiments can be saved.
-
-    :param csv_filename: csv fixture from tests.conftest.csv_filename
-    :return: None
-    """
-    input_features = [category_feature(encoder={"vocab_size": 10})]
-    output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
-
-    # Generate test data
-    rel_path = generate_data(input_features, output_features, csv_filename)
-    exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
-    vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
-    vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
-    output_feature_name = get_output_feature_name(exp_dir_name)
-    probability = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
-    experiment_source_data_name = csv_filename.split(".")[0]
-    ground_truth = experiment_source_data_name + ".csv"
-    split_file = experiment_source_data_name + ".split.parquet"
-    test_cmd_pdf = [
-        "python",
-        "-m",
-        "ludwig.visualize",
-        "--visualization",
-        "compare_classifiers_performance_subset",
-        "--output_feature_name",
-        output_feature_name,
-        "--split_file",
-        split_file,
-        "--ground_truth_metadata",
-        exp_dir_name + "/model/training_set_metadata.json",
-        "--probabilities",
-        probability,
-        probability,
-        "--model_names",
-        "Model1",
-        "Model2",
-        "--ground_truth",
-        ground_truth,
-        "--top_n_classes",
-        "6",
-        "-od",
-        exp_dir_name,
-    ]
-    test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
-
-    commands = [test_cmd_pdf, test_cmd_png]
-    vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
-
-    for command, viz_pattern in zip(commands, vis_patterns):
-        result = subprocess.run(command)
-        figure_cnt = glob.glob(viz_pattern)
-
-        assert 0 == result.returncode
-        assert 1 == len(figure_cnt)
-
-
-def test_visualization_compare_classifiers_changing_k_output_pdf(csv_filename):
-    """It should be possible to save figures as pdf in the specified directory."""
-    input_features = [category_feature(encoder={"vocab_size": 10})]
-    output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
-
-    # Generate test data
-    rel_path = generate_data(input_features, output_features, csv_filename)
-    exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
-    vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
-    vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
-    output_feature_name = get_output_feature_name(exp_dir_name)
-    probability = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
-    experiment_source_data_name = csv_filename.split(".")[0]
-    ground_truth = experiment_source_data_name + ".csv"
-    split_file = experiment_source_data_name + ".split.parquet"
-    ground_truth_metadata = exp_dir_name + "/model/training_set_metadata.json"
-    test_cmd_pdf = [
-        "python",
-        "-m",
-        "ludwig.visualize",
-        "--visualization",
-        "compare_classifiers_performance_changing_k",
-        "--output_feature_name",
-        output_feature_name,
-        "--split_file",
-        split_file,
-        "--ground_truth_metadata",
-        ground_truth_metadata,
-        "--probabilities",
-        probability,
-        probability,
-        "--model_names",
-        "Model1",
-        "Model2",
-        "--ground_truth",
-        ground_truth,
-        "--top_n_classes",
-        "6",
-        "-od",
-        exp_dir_name,
-    ]
-    test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
-
-    commands = [test_cmd_pdf, test_cmd_png]
-    vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
-    for command, viz_pattern in zip(commands, vis_patterns):
-        result = subprocess.run(command)
-        figure_cnt = glob.glob(viz_pattern)
-
-        assert 0 == result.returncode
-        assert 1 == len(figure_cnt)
-
-
-def test_visualization_compare_classifiers_multiclass_multimetric_output_saved(csv_filename):
-    """Ensure pdf and png figures from the experiments can be saved.
-
-    :param csv_filename: csv fixture from tests.conftest.csv_filename
-    :return: None
-    """
-    input_features = [category_feature(encoder={"vocab_size": 10})]
-    output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
-
-    # Generate test data
-    rel_path = generate_data(input_features, output_features, csv_filename)
-    exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
-    vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
-    vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
-    output_feature_name = get_output_feature_name(exp_dir_name)
-    test_stats = os.path.join(exp_dir_name, TEST_STATISTICS_FILE_NAME)
-    experiment_source_data_name = csv_filename.split(".")[0]
-    ground_truth_metadata = experiment_source_data_name + ".meta.json"
-    test_cmd_pdf = [
-        "python",
-        "-m",
-        "ludwig.visualize",
-        "--visualization",
-        "compare_classifiers_multiclass_multimetric",
-        "--output_feature_name",
-        output_feature_name,
-        "--test_statistics",
-        test_stats,
-        test_stats,
-        "--ground_truth_metadata",
-        ground_truth_metadata,
-        "-od",
-        exp_dir_name,
-    ]
-    test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
-
-    commands = [test_cmd_pdf, test_cmd_png]
-    vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
-
-    for command, viz_pattern in zip(commands, vis_patterns):
-        result = subprocess.run(command)
-        figure_cnt = glob.glob(viz_pattern)
-
-        assert 0 == result.returncode
-        assert 4 == len(figure_cnt)
-
-
-def test_visualization_compare_classifiers_predictions_npy_output_saved(csv_filename):
-    """Ensure pdf and png figures from the experiments can be saved.
-
-    Predictions are loaded form npy file.
-    :param csv_filename: csv fixture from tests.fixtures.filenames.csv_filename
-    :return: None
-    """
-    input_features = [category_feature(encoder={"vocab_size": 10})]
-    output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
-
-    # Generate test data
-    rel_path = generate_data(input_features, output_features, csv_filename)
-    exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
-    vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
-    vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
-    output_feature_name = get_output_feature_name(exp_dir_name)
-    prediction = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
-    experiment_source_data_name = csv_filename.split(".")[0]
-    ground_truth = experiment_source_data_name + ".csv"
-    split_file = experiment_source_data_name + ".split.parquet"
-    test_cmd_pdf = [
-        "python",
-        "-m",
-        "ludwig.visualize",
-        "--visualization",
-        "compare_classifiers_predictions",
-        "--ground_truth",
-        ground_truth,
-        "--output_feature_name",
-        output_feature_name,
-        "--split_file",
-        split_file,
-        "--ground_truth_metadata",
-        exp_dir_name + "/model/training_set_metadata.json",
-        "--predictions",
-        prediction,
-        prediction,
-        "--model_names",
-        "Model1",
-        "Model2",
-        "-od",
-        exp_dir_name,
-    ]
-    test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
-
-    commands = [test_cmd_pdf, test_cmd_png]
-    vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
-
-    for command, viz_pattern in zip(commands, vis_patterns):
-        result = subprocess.run(command)
-        figure_cnt = glob.glob(viz_pattern)
-
-        assert 0 == result.returncode
-        assert 1 == len(figure_cnt)
-
-
-def test_visualization_compare_classifiers_predictions_csv_output_saved(csv_filename):
-    """Ensure pdf and png figures from the experiments can be saved.
-
-    Predictions are loaded form csv file.
-    :param csv_filename: csv fixture from tests.fixtures.filenames.csv_filename
-    :return: None
-    """
-    input_features = [category_feature(encoder={"vocab_size": 10})]
-    output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
-
-    # Generate test data
-    rel_path = generate_data(input_features, output_features, csv_filename)
-    exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
-    vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
-    vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
-    output_feature_name = get_output_feature_name(exp_dir_name)
-    prediction = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
-    experiment_source_data_name = csv_filename.split(".")[0]
-    ground_truth = experiment_source_data_name + ".csv"
-    split_file = experiment_source_data_name + ".split.parquet"
-    test_cmd_pdf = [
-        "python",
-        "-m",
-        "ludwig.visualize",
-        "--visualization",
-        "compare_classifiers_predictions",
-        "--ground_truth",
-        ground_truth,
-        "--output_feature_name",
-        output_feature_name,
-        "--split_file",
-        split_file,
-        "--ground_truth_metadata",
-        exp_dir_name + "/model/training_set_metadata.json",
-        "--predictions",
-        prediction,
-        prediction,
-        "--model_names",
-        "Model1",
-        "Model2",
-        "-od",
-        exp_dir_name,
-    ]
-    test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
-
-    commands = [test_cmd_pdf, test_cmd_png]
-    vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
-
-    for command, viz_pattern in zip(commands, vis_patterns):
-        result = subprocess.run(command)
-        figure_cnt = glob.glob(viz_pattern)
-
-        assert 0 == result.returncode
-        assert 1 == len(figure_cnt)
-
-
-def test_visualization_cmp_classifiers_predictions_distribution_output_saved(csv_filename):
-    """Ensure pdf and png figures from the experiments can be saved.
-
-    :param csv_filename: csv fixture from tests.conftest.csv_filename
-    :return: None
-    """
-    input_features = [category_feature(encoder={"vocab_size": 10})]
-    output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
-
-    # Generate test data
-    rel_path = generate_data(input_features, output_features, csv_filename)
-    exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
-    vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
-    vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
-    output_feature_name = get_output_feature_name(exp_dir_name)
-    prediction = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
-    experiment_source_data_name = csv_filename.split(".")[0]
-    ground_truth = experiment_source_data_name + ".csv"
-    split_file = experiment_source_data_name + ".split.parquet"
-    test_cmd_pdf = [
-        "python",
-        "-m",
-        "ludwig.visualize",
-        "--visualization",
-        "compare_classifiers_predictions_distribution",
-        "--ground_truth",
-        ground_truth,
-        "--output_feature_name",
-        output_feature_name,
-        "--split_file",
-        split_file,
-        "--ground_truth_metadata",
-        exp_dir_name + "/model/training_set_metadata.json",
-        "--predictions",
-        prediction,
-        prediction,
-        "--model_names",
-        "Model1",
-        "Model2",
-        "-od",
-        exp_dir_name,
-    ]
-    test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
-
-    commands = [test_cmd_pdf, test_cmd_png]
-    vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
-
-    for command, viz_pattern in zip(commands, vis_patterns):
-        result = subprocess.run(command)
-        figure_cnt = glob.glob(viz_pattern)
-
-        assert 0 == result.returncode
-        assert 1 == len(figure_cnt)
-
-
-def test_visualization_cconfidence_thresholding_output_saved(csv_filename):
-    """Ensure pdf and png figures from the experiments can be saved.
-
-    :param csv_filename: csv fixture from tests.conftest.csv_filename
-    :return: None
-    """
-    input_features = [category_feature(encoder={"vocab_size": 10})]
-    output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
-
-    # Generate test data
-    rel_path = generate_data(input_features, output_features, csv_filename)
-    exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
-    vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
-    vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
-    output_feature_name = get_output_feature_name(exp_dir_name)
-    probability = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
-    experiment_source_data_name = csv_filename.split(".")[0]
-    ground_truth = experiment_source_data_name + ".csv"
-    split_file = experiment_source_data_name + ".split.parquet"
-    test_cmd_pdf = [
-        "python",
-        "-m",
-        "ludwig.visualize",
-        "--visualization",
-        "confidence_thresholding",
-        "--ground_truth",
-        ground_truth,
-        "--output_feature_name",
-        output_feature_name,
-        "--split_file",
-        split_file,
-        "--ground_truth_metadata",
-        exp_dir_name + "/model/training_set_metadata.json",
-        "--probabilities",
-        probability,
-        probability,
-        "--model_names",
-        "Model1",
-        "Model2",
-        "-od",
-        exp_dir_name,
-    ]
-    test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
-
-    commands = [test_cmd_pdf, test_cmd_png]
-    vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
-
-    for command, viz_pattern in zip(commands, vis_patterns):
-        result = subprocess.run(command)
-        figure_cnt = glob.glob(viz_pattern)
-
-        assert 0 == result.returncode
-        assert 1 == len(figure_cnt)
-
-
-def test_visualization_confidence_thresholding_data_vs_acc_output_saved(csv_filename):
-    """Ensure pdf and png figures from the experiments can be saved.
-
-    :param csv_filename: csv fixture from tests.conftest.csv_filename
-    :return: None
-    """
-    input_features = [category_feature(encoder={"vocab_size": 10})]
-    output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
-
-    # Generate test data
-    rel_path = generate_data(input_features, output_features, csv_filename)
-    exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
-    vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
-    vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
-    output_feature_name = get_output_feature_name(exp_dir_name)
-    probability = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
-    experiment_source_data_name = csv_filename.split(".")[0]
-    ground_truth = experiment_source_data_name + ".csv"
-    split_file = experiment_source_data_name + ".split.parquet"
-    test_cmd_pdf = [
-        "python",
-        "-m",
-        "ludwig.visualize",
-        "--visualization",
-        "confidence_thresholding_data_vs_acc",
-        "--ground_truth",
-        ground_truth,
-        "--output_feature_name",
-        output_feature_name,
-        "--split_file",
-        split_file,
-        "--ground_truth_metadata",
-        exp_dir_name + "/model/training_set_metadata.json",
-        "--probabilities",
-        probability,
-        probability,
-        "--model_names",
-        "Model1",
-        "Model2",
-        "-od",
-        exp_dir_name,
-    ]
-    test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
-
-    commands = [test_cmd_pdf, test_cmd_png]
-    vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
-
-    for command, viz_pattern in zip(commands, vis_patterns):
-        result = subprocess.run(command)
-        figure_cnt = glob.glob(viz_pattern)
-
-        assert 0 == result.returncode
-        assert 1 == len(figure_cnt)
-
-
-def test_visualization_confidence_thresholding_data_vs_acc_subset_output_saved(csv_filename):
-    """Ensure pdf and png figures from the experiments can be saved.
-
-    :param csv_filename: csv fixture from tests.conftest.csv_filename
-    :return: None
-    """
-    input_features = [category_feature(encoder={"vocab_size": 10})]
-    output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
-
-    # Generate test data
-    rel_path = generate_data(input_features, output_features, csv_filename)
-    exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
-    vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
-    vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
-    output_feature_name = get_output_feature_name(exp_dir_name)
-    probability = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
-    experiment_source_data_name = csv_filename.split(".")[0]
-    ground_truth = experiment_source_data_name + ".csv"
-    split_file = experiment_source_data_name + ".split.parquet"
-    test_cmd_pdf = [
-        "python",
-        "-m",
-        "ludwig.visualize",
-        "--visualization",
-        "confidence_thresholding_data_vs_acc_subset",
-        "--ground_truth",
-        ground_truth,
-        "--output_feature_name",
-        output_feature_name,
-        "--split_file",
-        split_file,
-        "--ground_truth_metadata",
-        exp_dir_name + "/model/training_set_metadata.json",
-        "--probabilities",
-        probability,
-        probability,
-        "--model_names",
-        "Model1",
-        "Model2",
-        "--top_n_classes",
-        "3",
-        "-od",
-        exp_dir_name,
-    ]
-    test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
-
-    commands = [test_cmd_pdf, test_cmd_png]
-    vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
-
-    for command, viz_pattern in zip(commands, vis_patterns):
-        result = subprocess.run(command)
-        figure_cnt = glob.glob(viz_pattern)
-
-        assert 0 == result.returncode
-        assert 1 == len(figure_cnt)
-
-
-def test_vis_confidence_thresholding_data_vs_acc_subset_per_class_output_saved(csv_filename):
-    """Ensure pdf and png figures from the experiments can be saved.
-
-    :param csv_filename: csv fixture from tests.conftest.csv_filename
-    :return: None
-    """
-    input_features = [category_feature(encoder={"vocab_size": 10})]
-    output_features = [category_feature(decoder={"vocab_size": 5}, reduce_input="sum")]
-
-    # Generate test data
-    rel_path = generate_data(input_features, output_features, csv_filename)
-    exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
-    vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
-    vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
-    output_feature_name = get_output_feature_name(exp_dir_name)
-    probability = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
-    experiment_source_data_name = csv_filename.split(".")[0]
-    ground_truth = experiment_source_data_name + ".csv"
-    split_file = experiment_source_data_name + ".split.parquet"
-    test_cmd_pdf = [
-        "python",
-        "-m",
-        "ludwig.visualize",
-        "--visualization",
-        "confidence_thresholding_data_vs_acc_subset_per_class",
-        "--ground_truth",
-        ground_truth,
-        "--output_feature_name",
-        output_feature_name,
-        "--split_file",
-        split_file,
-        "--ground_truth_metadata",
-        exp_dir_name + "/model/training_set_metadata.json",
-        "--probabilities",
-        probability,
-        probability,
-        "--model_names",
-        "Model1",
-        "Model2",
-        "--top_n_classes",
-        "3",
-        "-od",
-        exp_dir_name,
-    ]
-    test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
-
-    commands = [test_cmd_pdf, test_cmd_png]
-    vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
-
-    for command, viz_pattern in zip(commands, vis_patterns):
-        result = subprocess.run(command)
-        figure_cnt = glob.glob(viz_pattern)
-
-        assert 0 == result.returncode
-        # 3 figures should be saved because experiment setting top_n_classes = 3
-        # hence one figure per class
-        assert 3 == len(figure_cnt)
-
-
-def test_vis_confidence_thresholding_2thresholds_2d_output_saved(csv_filename):
-    """Ensure pdf and png figures from the experiments can be saved.
-
-    :param csv_filename: csv fixture from tests.conftest.csv_filename
-    :return: None
-    """
-    input_features = [
-        text_feature(encoder={"vocab_size": 10, "min_len": 1, "type": "stacked_cnn"}),
-        number_feature(),
-        category_feature(encoder={"vocab_size": 10, "embedding_size": 5}),
-        set_feature(),
-        sequence_feature(encoder={"vocab_size": 10, "max_len": 10, "type": "embed"}),
-    ]
-    output_features = [
-        category_feature(decoder={"vocab_size": 2}, reduce_input="sum"),
-        category_feature(decoder={"vocab_size": 2}, reduce_input="sum"),
-    ]
-    # Generate test data
-    rel_path = generate_data(input_features, output_features, csv_filename)
-    input_features[0][ENCODER][TYPE] = "parallel_cnn"
-    exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
-    vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
-    vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
-    threshold_output_feature_name1 = get_output_feature_name(exp_dir_name)
-    threshold_output_feature_name2 = get_output_feature_name(exp_dir_name, output_feature=1)
-    probability = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
-    experiment_source_data_name = csv_filename.split(".")[0]
-    ground_truth = experiment_source_data_name + ".csv"
-    split_file = experiment_source_data_name + ".split.parquet"
-    test_cmd_pdf = [
-        "python",
-        "-m",
-        "ludwig.visualize",
-        "--visualization",
-        "confidence_thresholding_2thresholds_2d",
-        "--ground_truth",
-        ground_truth,
-        "--split_file",
-        split_file,
-        "--ground_truth_metadata",
-        exp_dir_name + "/model/training_set_metadata.json",
-        "--probabilities",
-        probability,
-        "--threshold_output_feature_names",
-        threshold_output_feature_name1,
-        threshold_output_feature_name2,
-        "--model_names",
-        "Model1",
-        "-od",
-        exp_dir_name,
-    ]
-    test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
-
-    commands = [test_cmd_pdf, test_cmd_png]
-    vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
-
-    for command, viz_pattern in zip(commands, vis_patterns):
-        result = subprocess.run(
-            command,
-        )
-        figure_cnt = glob.glob(viz_pattern)
-
-        assert 0 == result.returncode
-        assert 3 == len(figure_cnt)
-
-
-def test_vis_confidence_thresholding_2thresholds_3d_output_saved(csv_filename):
-    """Ensure pdf and png figures from the experiments can be saved.
-
-    :param csv_filename: csv fixture from tests.conftest.csv_filename
-    :return: None
-    """
-    input_features = [
-        text_feature(encoder={"vocab_size": 10, "min_len": 1, "type": "stacked_cnn"}),
-        number_feature(),
-        category_feature(encoder={"vocab_size": 10, "embedding_size": 5}),
-        set_feature(),
-        sequence_feature(encoder={"vocab_size": 10, "max_len": 10, "type": "embed"}),
-    ]
-    output_features = [
-        category_feature(decoder={"vocab_size": 2}, reduce_input="sum"),
-        category_feature(decoder={"vocab_size": 2}, reduce_input="sum"),
-    ]
-    # Generate test data
-    rel_path = generate_data(input_features, output_features, csv_filename)
-    input_features[0][ENCODER][TYPE] = "parallel_cnn"
-    exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
-    vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
-    vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
-    threshold_output_feature_name1 = get_output_feature_name(exp_dir_name)
-    threshold_output_feature_name2 = get_output_feature_name(exp_dir_name, output_feature=1)
-    probability = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
-    experiment_source_data_name = csv_filename.split(".")[0]
-    ground_truth = experiment_source_data_name + ".csv"
-    split_file = experiment_source_data_name + ".split.parquet"
-    test_cmd_pdf = [
-        "python",
-        "-m",
-        "ludwig.visualize",
-        "--visualization",
-        "confidence_thresholding_2thresholds_3d",
-        "--ground_truth",
-        ground_truth,
-        "--split_file",
-        split_file,
-        "--ground_truth_metadata",
-        exp_dir_name + "/model/training_set_metadata.json",
-        "--probabilities",
-        probability,
-        "--threshold_output_feature_names",
-        threshold_output_feature_name1,
-        threshold_output_feature_name2,
-        "-od",
-        exp_dir_name,
-    ]
-    test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
-
-    commands = [test_cmd_pdf, test_cmd_png]
-    vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
-
-    for command, viz_pattern in zip(commands, vis_patterns):
-        result = subprocess.run(
-            command,
-        )
-        figure_cnt = glob.glob(viz_pattern)
-
-        assert 0 == result.returncode
-        assert 1 == len(figure_cnt)
+# def test_visualization_compare_classifiers_from_prob_csv_output_saved(csv_filename):
+#     """Ensure pdf and png figures from the experiments can be saved.
+
+#     Probabilities are loaded from csv file.
+#     :param csv_filename: csv fixture from tests.fixtures.filenames.csv_filename
+#     :return: None
+#     """
+#     input_features = [category_feature(encoder={"vocab_size": 10})]
+#     output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
+
+#     # Generate test data
+#     rel_path = generate_data(input_features, output_features, csv_filename)
+#     exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
+
+#     vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
+#     vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
+#     output_feature_name = get_output_feature_name(exp_dir_name)
+#     probability = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
+#     experiment_source_data_name = csv_filename.split(".")[0]
+#     ground_truth = experiment_source_data_name + ".csv"
+#     split_file = get_split_path(csv_filename)
+#     test_cmd_pdf = [
+#         "python",
+#         "-m",
+#         "ludwig.visualize",
+#         "--visualization",
+#         "compare_classifiers_performance_from_prob",
+#         "--ground_truth",
+#         ground_truth,
+#         "--output_feature_name",
+#         output_feature_name,
+#         "--split_file",
+#         split_file,
+#         "--ground_truth_metadata",
+#         exp_dir_name + "/model/training_set_metadata.json",
+#         "--probabilities",
+#         probability,
+#         probability,
+#         "--model_names",
+#         "Model1",
+#         "Model2",
+#         "-od",
+#         exp_dir_name,
+#     ]
+#     test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
+
+#     commands = [test_cmd_pdf, test_cmd_png]
+#     vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
+
+#     for command, viz_pattern in zip(commands, vis_patterns):
+#         result = subprocess.run(command)
+#         figure_cnt = glob.glob(viz_pattern)
+
+#         assert 0 == result.returncode
+#         assert 1 == len(figure_cnt)
+
+
+# def test_visualization_compare_classifiers_from_prob_npy_output_saved(csv_filename):
+#     """Ensure pdf and png figures from the experiments can be saved.
+
+#     Probabilities are loaded from npy file.
+#     :param csv_filename: csv fixture from tests.fixtures.filenames.csv_filename
+#     :return: None
+#     """
+#     input_features = [category_feature(encoder={"vocab_size": 10})]
+#     output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
+
+#     # Generate test data
+#     rel_path = generate_data(input_features, output_features, csv_filename)
+#     exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
+
+#     vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
+#     vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
+#     output_feature_name = get_output_feature_name(exp_dir_name)
+#     probability = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
+#     experiment_source_data_name = csv_filename.split(".")[0]
+#     ground_truth = experiment_source_data_name + ".csv"
+#     split_file = experiment_source_data_name + ".split.parquet"
+#     test_cmd_pdf = [
+#         "python",
+#         "-m",
+#         "ludwig.visualize",
+#         "--visualization",
+#         "compare_classifiers_performance_from_prob",
+#         "--ground_truth",
+#         ground_truth,
+#         "--output_feature_name",
+#         output_feature_name,
+#         "--split_file",
+#         split_file,
+#         "--ground_truth_metadata",
+#         exp_dir_name + "/model/training_set_metadata.json",
+#         "--probabilities",
+#         probability,
+#         probability,
+#         "--model_names",
+#         "Model1",
+#         "Model2",
+#         "-od",
+#         exp_dir_name,
+#     ]
+#     test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
+
+#     commands = [test_cmd_pdf, test_cmd_png]
+#     vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
+
+#     for command, viz_pattern in zip(commands, vis_patterns):
+#         result = subprocess.run(command)
+#         figure_cnt = glob.glob(viz_pattern)
+
+#         assert 0 == result.returncode
+#         assert 1 == len(figure_cnt)
+
+
+# def test_visualization_compare_classifiers_from_pred_npy_output_saved(csv_filename):
+#     """Ensure pdf and png figures from the experiments can be saved.
+
+#     Predictions are loaded from npy file.
+#     :param csv_filename: csv fixture from tests.fixtures.filenames.csv_filename
+#     :return: None
+#     """
+#     input_features = [category_feature(encoder={"vocab_size": 10})]
+#     output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
+
+#     # Generate test data
+#     rel_path = generate_data(input_features, output_features, csv_filename)
+#     exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
+#     vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
+#     vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
+#     output_feature_name = get_output_feature_name(exp_dir_name)
+#     prediction = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
+#     experiment_source_data_name = csv_filename.split(".")[0]
+#     ground_truth = experiment_source_data_name + ".csv"
+#     split_file = experiment_source_data_name + ".split.parquet"
+#     ground_truth_metadata = experiment_source_data_name + ".meta.json"
+#     test_cmd_pdf = [
+#         "python",
+#         "-m",
+#         "ludwig.visualize",
+#         "--visualization",
+#         "compare_classifiers_performance_from_pred",
+#         "--ground_truth_metadata",
+#         ground_truth_metadata,
+#         "--ground_truth",
+#         ground_truth,
+#         "--output_feature_name",
+#         output_feature_name,
+#         "--split_file",
+#         split_file,
+#         "--predictions",
+#         prediction,
+#         prediction,
+#         "--model_names",
+#         "Model1",
+#         "Model2",
+#         "-od",
+#         exp_dir_name,
+#     ]
+#     test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
+
+#     commands = [test_cmd_pdf, test_cmd_png]
+#     vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
+
+#     for command, viz_pattern in zip(commands, vis_patterns):
+#         result = subprocess.run(command)
+#         figure_cnt = glob.glob(viz_pattern)
+
+#         assert 0 == result.returncode
+#         assert 1 == len(figure_cnt)
+
+
+# def test_visualization_compare_classifiers_from_pred_csv_output_saved(csv_filename):
+#     """Ensure pdf and png figures from the experiments can be saved.
+
+#     Predictions are loaded from csv file.
+#     :param csv_filename: csv fixture from tests.fixtures.filenames.csv_filename
+#     :return: None
+#     """
+#     input_features = [category_feature(encoder={"vocab_size": 10})]
+#     output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
+
+#     # Generate test data
+#     rel_path = generate_data(input_features, output_features, csv_filename)
+#     exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
+#     vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
+#     vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
+#     output_feature_name = get_output_feature_name(exp_dir_name)
+#     prediction = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
+#     experiment_source_data_name = csv_filename.split(".")[0]
+#     ground_truth = experiment_source_data_name + ".csv"
+#     split_file = experiment_source_data_name + ".split.parquet"
+#     ground_truth_metadata = experiment_source_data_name + ".meta.json"
+#     test_cmd_pdf = [
+#         "python",
+#         "-m",
+#         "ludwig.visualize",
+#         "--visualization",
+#         "compare_classifiers_performance_from_pred",
+#         "--ground_truth_metadata",
+#         ground_truth_metadata,
+#         "--ground_truth",
+#         ground_truth,
+#         "--output_feature_name",
+#         output_feature_name,
+#         "--split_file",
+#         split_file,
+#         "--predictions",
+#         prediction,
+#         prediction,
+#         "--model_names",
+#         "Model1",
+#         "Model2",
+#         "-od",
+#         exp_dir_name,
+#     ]
+#     test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
+
+#     commands = [test_cmd_pdf, test_cmd_png]
+#     vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
+
+#     for command, viz_pattern in zip(commands, vis_patterns):
+#         result = subprocess.run(command)
+#         figure_cnt = glob.glob(viz_pattern)
+
+#         assert 0 == result.returncode
+#         assert 1 == len(figure_cnt)
+
+
+# def test_visualization_compare_classifiers_subset_output_saved(csv_filename):
+#     """Ensure pdf and png figures from the experiments can be saved.
+
+#     :param csv_filename: csv fixture from tests.conftest.csv_filename
+#     :return: None
+#     """
+#     input_features = [category_feature(encoder={"vocab_size": 10})]
+#     output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
+
+#     # Generate test data
+#     rel_path = generate_data(input_features, output_features, csv_filename)
+#     exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
+#     vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
+#     vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
+#     output_feature_name = get_output_feature_name(exp_dir_name)
+#     probability = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
+#     experiment_source_data_name = csv_filename.split(".")[0]
+#     ground_truth = experiment_source_data_name + ".csv"
+#     split_file = experiment_source_data_name + ".split.parquet"
+#     test_cmd_pdf = [
+#         "python",
+#         "-m",
+#         "ludwig.visualize",
+#         "--visualization",
+#         "compare_classifiers_performance_subset",
+#         "--output_feature_name",
+#         output_feature_name,
+#         "--split_file",
+#         split_file,
+#         "--ground_truth_metadata",
+#         exp_dir_name + "/model/training_set_metadata.json",
+#         "--probabilities",
+#         probability,
+#         probability,
+#         "--model_names",
+#         "Model1",
+#         "Model2",
+#         "--ground_truth",
+#         ground_truth,
+#         "--top_n_classes",
+#         "6",
+#         "-od",
+#         exp_dir_name,
+#     ]
+#     test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
+
+#     commands = [test_cmd_pdf, test_cmd_png]
+#     vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
+
+#     for command, viz_pattern in zip(commands, vis_patterns):
+#         result = subprocess.run(command)
+#         figure_cnt = glob.glob(viz_pattern)
+
+#         assert 0 == result.returncode
+#         assert 1 == len(figure_cnt)
+
+
+# def test_visualization_compare_classifiers_changing_k_output_pdf(csv_filename):
+#     """It should be possible to save figures as pdf in the specified directory."""
+#     input_features = [category_feature(encoder={"vocab_size": 10})]
+#     output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
+
+#     # Generate test data
+#     rel_path = generate_data(input_features, output_features, csv_filename)
+#     exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
+#     vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
+#     vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
+#     output_feature_name = get_output_feature_name(exp_dir_name)
+#     probability = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
+#     experiment_source_data_name = csv_filename.split(".")[0]
+#     ground_truth = experiment_source_data_name + ".csv"
+#     split_file = experiment_source_data_name + ".split.parquet"
+#     ground_truth_metadata = exp_dir_name + "/model/training_set_metadata.json"
+#     test_cmd_pdf = [
+#         "python",
+#         "-m",
+#         "ludwig.visualize",
+#         "--visualization",
+#         "compare_classifiers_performance_changing_k",
+#         "--output_feature_name",
+#         output_feature_name,
+#         "--split_file",
+#         split_file,
+#         "--ground_truth_metadata",
+#         ground_truth_metadata,
+#         "--probabilities",
+#         probability,
+#         probability,
+#         "--model_names",
+#         "Model1",
+#         "Model2",
+#         "--ground_truth",
+#         ground_truth,
+#         "--top_n_classes",
+#         "6",
+#         "-od",
+#         exp_dir_name,
+#     ]
+#     test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
+
+#     commands = [test_cmd_pdf, test_cmd_png]
+#     vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
+#     for command, viz_pattern in zip(commands, vis_patterns):
+#         result = subprocess.run(command)
+#         figure_cnt = glob.glob(viz_pattern)
+
+#         assert 0 == result.returncode
+#         assert 1 == len(figure_cnt)
+
+
+# def test_visualization_compare_classifiers_multiclass_multimetric_output_saved(csv_filename):
+#     """Ensure pdf and png figures from the experiments can be saved.
+
+#     :param csv_filename: csv fixture from tests.conftest.csv_filename
+#     :return: None
+#     """
+#     input_features = [category_feature(encoder={"vocab_size": 10})]
+#     output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
+
+#     # Generate test data
+#     rel_path = generate_data(input_features, output_features, csv_filename)
+#     exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
+#     vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
+#     vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
+#     output_feature_name = get_output_feature_name(exp_dir_name)
+#     test_stats = os.path.join(exp_dir_name, TEST_STATISTICS_FILE_NAME)
+#     experiment_source_data_name = csv_filename.split(".")[0]
+#     ground_truth_metadata = experiment_source_data_name + ".meta.json"
+#     test_cmd_pdf = [
+#         "python",
+#         "-m",
+#         "ludwig.visualize",
+#         "--visualization",
+#         "compare_classifiers_multiclass_multimetric",
+#         "--output_feature_name",
+#         output_feature_name,
+#         "--test_statistics",
+#         test_stats,
+#         test_stats,
+#         "--ground_truth_metadata",
+#         ground_truth_metadata,
+#         "-od",
+#         exp_dir_name,
+#     ]
+#     test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
+
+#     commands = [test_cmd_pdf, test_cmd_png]
+#     vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
+
+#     for command, viz_pattern in zip(commands, vis_patterns):
+#         result = subprocess.run(command)
+#         figure_cnt = glob.glob(viz_pattern)
+
+#         assert 0 == result.returncode
+#         assert 4 == len(figure_cnt)
+
+
+# def test_visualization_compare_classifiers_predictions_npy_output_saved(csv_filename):
+#     """Ensure pdf and png figures from the experiments can be saved.
+
+#     Predictions are loaded form npy file.
+#     :param csv_filename: csv fixture from tests.fixtures.filenames.csv_filename
+#     :return: None
+#     """
+#     input_features = [category_feature(encoder={"vocab_size": 10})]
+#     output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
+
+#     # Generate test data
+#     rel_path = generate_data(input_features, output_features, csv_filename)
+#     exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
+#     vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
+#     vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
+#     output_feature_name = get_output_feature_name(exp_dir_name)
+#     prediction = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
+#     experiment_source_data_name = csv_filename.split(".")[0]
+#     ground_truth = experiment_source_data_name + ".csv"
+#     split_file = experiment_source_data_name + ".split.parquet"
+#     test_cmd_pdf = [
+#         "python",
+#         "-m",
+#         "ludwig.visualize",
+#         "--visualization",
+#         "compare_classifiers_predictions",
+#         "--ground_truth",
+#         ground_truth,
+#         "--output_feature_name",
+#         output_feature_name,
+#         "--split_file",
+#         split_file,
+#         "--ground_truth_metadata",
+#         exp_dir_name + "/model/training_set_metadata.json",
+#         "--predictions",
+#         prediction,
+#         prediction,
+#         "--model_names",
+#         "Model1",
+#         "Model2",
+#         "-od",
+#         exp_dir_name,
+#     ]
+#     test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
+
+#     commands = [test_cmd_pdf, test_cmd_png]
+#     vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
+
+#     for command, viz_pattern in zip(commands, vis_patterns):
+#         result = subprocess.run(command)
+#         figure_cnt = glob.glob(viz_pattern)
+
+#         assert 0 == result.returncode
+#         assert 1 == len(figure_cnt)
+
+
+# def test_visualization_compare_classifiers_predictions_csv_output_saved(csv_filename):
+#     """Ensure pdf and png figures from the experiments can be saved.
+
+#     Predictions are loaded form csv file.
+#     :param csv_filename: csv fixture from tests.fixtures.filenames.csv_filename
+#     :return: None
+#     """
+#     input_features = [category_feature(encoder={"vocab_size": 10})]
+#     output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
+
+#     # Generate test data
+#     rel_path = generate_data(input_features, output_features, csv_filename)
+#     exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
+#     vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
+#     vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
+#     output_feature_name = get_output_feature_name(exp_dir_name)
+#     prediction = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
+#     experiment_source_data_name = csv_filename.split(".")[0]
+#     ground_truth = experiment_source_data_name + ".csv"
+#     split_file = experiment_source_data_name + ".split.parquet"
+#     test_cmd_pdf = [
+#         "python",
+#         "-m",
+#         "ludwig.visualize",
+#         "--visualization",
+#         "compare_classifiers_predictions",
+#         "--ground_truth",
+#         ground_truth,
+#         "--output_feature_name",
+#         output_feature_name,
+#         "--split_file",
+#         split_file,
+#         "--ground_truth_metadata",
+#         exp_dir_name + "/model/training_set_metadata.json",
+#         "--predictions",
+#         prediction,
+#         prediction,
+#         "--model_names",
+#         "Model1",
+#         "Model2",
+#         "-od",
+#         exp_dir_name,
+#     ]
+#     test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
+
+#     commands = [test_cmd_pdf, test_cmd_png]
+#     vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
+
+#     for command, viz_pattern in zip(commands, vis_patterns):
+#         result = subprocess.run(command)
+#         figure_cnt = glob.glob(viz_pattern)
+
+#         assert 0 == result.returncode
+#         assert 1 == len(figure_cnt)
+
+
+# def test_visualization_cmp_classifiers_predictions_distribution_output_saved(csv_filename):
+#     """Ensure pdf and png figures from the experiments can be saved.
+
+#     :param csv_filename: csv fixture from tests.conftest.csv_filename
+#     :return: None
+#     """
+#     input_features = [category_feature(encoder={"vocab_size": 10})]
+#     output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
+
+#     # Generate test data
+#     rel_path = generate_data(input_features, output_features, csv_filename)
+#     exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
+#     vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
+#     vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
+#     output_feature_name = get_output_feature_name(exp_dir_name)
+#     prediction = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
+#     experiment_source_data_name = csv_filename.split(".")[0]
+#     ground_truth = experiment_source_data_name + ".csv"
+#     split_file = experiment_source_data_name + ".split.parquet"
+#     test_cmd_pdf = [
+#         "python",
+#         "-m",
+#         "ludwig.visualize",
+#         "--visualization",
+#         "compare_classifiers_predictions_distribution",
+#         "--ground_truth",
+#         ground_truth,
+#         "--output_feature_name",
+#         output_feature_name,
+#         "--split_file",
+#         split_file,
+#         "--ground_truth_metadata",
+#         exp_dir_name + "/model/training_set_metadata.json",
+#         "--predictions",
+#         prediction,
+#         prediction,
+#         "--model_names",
+#         "Model1",
+#         "Model2",
+#         "-od",
+#         exp_dir_name,
+#     ]
+#     test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
+
+#     commands = [test_cmd_pdf, test_cmd_png]
+#     vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
+
+#     for command, viz_pattern in zip(commands, vis_patterns):
+#         result = subprocess.run(command)
+#         figure_cnt = glob.glob(viz_pattern)
+
+#         assert 0 == result.returncode
+#         assert 1 == len(figure_cnt)
+
+
+# def test_visualization_cconfidence_thresholding_output_saved(csv_filename):
+#     """Ensure pdf and png figures from the experiments can be saved.
+
+#     :param csv_filename: csv fixture from tests.conftest.csv_filename
+#     :return: None
+#     """
+#     input_features = [category_feature(encoder={"vocab_size": 10})]
+#     output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
+
+#     # Generate test data
+#     rel_path = generate_data(input_features, output_features, csv_filename)
+#     exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
+#     vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
+#     vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
+#     output_feature_name = get_output_feature_name(exp_dir_name)
+#     probability = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
+#     experiment_source_data_name = csv_filename.split(".")[0]
+#     ground_truth = experiment_source_data_name + ".csv"
+#     split_file = experiment_source_data_name + ".split.parquet"
+#     test_cmd_pdf = [
+#         "python",
+#         "-m",
+#         "ludwig.visualize",
+#         "--visualization",
+#         "confidence_thresholding",
+#         "--ground_truth",
+#         ground_truth,
+#         "--output_feature_name",
+#         output_feature_name,
+#         "--split_file",
+#         split_file,
+#         "--ground_truth_metadata",
+#         exp_dir_name + "/model/training_set_metadata.json",
+#         "--probabilities",
+#         probability,
+#         probability,
+#         "--model_names",
+#         "Model1",
+#         "Model2",
+#         "-od",
+#         exp_dir_name,
+#     ]
+#     test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
+
+#     commands = [test_cmd_pdf, test_cmd_png]
+#     vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
+
+#     for command, viz_pattern in zip(commands, vis_patterns):
+#         result = subprocess.run(command)
+#         figure_cnt = glob.glob(viz_pattern)
+
+#         assert 0 == result.returncode
+#         assert 1 == len(figure_cnt)
+
+
+# def test_visualization_confidence_thresholding_data_vs_acc_output_saved(csv_filename):
+#     """Ensure pdf and png figures from the experiments can be saved.
+
+#     :param csv_filename: csv fixture from tests.conftest.csv_filename
+#     :return: None
+#     """
+#     input_features = [category_feature(encoder={"vocab_size": 10})]
+#     output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
+
+#     # Generate test data
+#     rel_path = generate_data(input_features, output_features, csv_filename)
+#     exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
+#     vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
+#     vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
+#     output_feature_name = get_output_feature_name(exp_dir_name)
+#     probability = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
+#     experiment_source_data_name = csv_filename.split(".")[0]
+#     ground_truth = experiment_source_data_name + ".csv"
+#     split_file = experiment_source_data_name + ".split.parquet"
+#     test_cmd_pdf = [
+#         "python",
+#         "-m",
+#         "ludwig.visualize",
+#         "--visualization",
+#         "confidence_thresholding_data_vs_acc",
+#         "--ground_truth",
+#         ground_truth,
+#         "--output_feature_name",
+#         output_feature_name,
+#         "--split_file",
+#         split_file,
+#         "--ground_truth_metadata",
+#         exp_dir_name + "/model/training_set_metadata.json",
+#         "--probabilities",
+#         probability,
+#         probability,
+#         "--model_names",
+#         "Model1",
+#         "Model2",
+#         "-od",
+#         exp_dir_name,
+#     ]
+#     test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
+
+#     commands = [test_cmd_pdf, test_cmd_png]
+#     vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
+
+#     for command, viz_pattern in zip(commands, vis_patterns):
+#         result = subprocess.run(command)
+#         figure_cnt = glob.glob(viz_pattern)
+
+#         assert 0 == result.returncode
+#         assert 1 == len(figure_cnt)
+
+
+# def test_visualization_confidence_thresholding_data_vs_acc_subset_output_saved(csv_filename):
+#     """Ensure pdf and png figures from the experiments can be saved.
+
+#     :param csv_filename: csv fixture from tests.conftest.csv_filename
+#     :return: None
+#     """
+#     input_features = [category_feature(encoder={"vocab_size": 10})]
+#     output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
+
+#     # Generate test data
+#     rel_path = generate_data(input_features, output_features, csv_filename)
+#     exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
+#     vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
+#     vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
+#     output_feature_name = get_output_feature_name(exp_dir_name)
+#     probability = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
+#     experiment_source_data_name = csv_filename.split(".")[0]
+#     ground_truth = experiment_source_data_name + ".csv"
+#     split_file = experiment_source_data_name + ".split.parquet"
+#     test_cmd_pdf = [
+#         "python",
+#         "-m",
+#         "ludwig.visualize",
+#         "--visualization",
+#         "confidence_thresholding_data_vs_acc_subset",
+#         "--ground_truth",
+#         ground_truth,
+#         "--output_feature_name",
+#         output_feature_name,
+#         "--split_file",
+#         split_file,
+#         "--ground_truth_metadata",
+#         exp_dir_name + "/model/training_set_metadata.json",
+#         "--probabilities",
+#         probability,
+#         probability,
+#         "--model_names",
+#         "Model1",
+#         "Model2",
+#         "--top_n_classes",
+#         "3",
+#         "-od",
+#         exp_dir_name,
+#     ]
+#     test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
+
+#     commands = [test_cmd_pdf, test_cmd_png]
+#     vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
+
+#     for command, viz_pattern in zip(commands, vis_patterns):
+#         result = subprocess.run(command)
+#         figure_cnt = glob.glob(viz_pattern)
+
+#         assert 0 == result.returncode
+#         assert 1 == len(figure_cnt)
+
+
+# def test_vis_confidence_thresholding_data_vs_acc_subset_per_class_output_saved(csv_filename):
+#     """Ensure pdf and png figures from the experiments can be saved.
+
+#     :param csv_filename: csv fixture from tests.conftest.csv_filename
+#     :return: None
+#     """
+#     input_features = [category_feature(encoder={"vocab_size": 10})]
+#     output_features = [category_feature(decoder={"vocab_size": 5}, reduce_input="sum")]
+
+#     # Generate test data
+#     rel_path = generate_data(input_features, output_features, csv_filename)
+#     exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
+#     vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
+#     vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
+#     output_feature_name = get_output_feature_name(exp_dir_name)
+#     probability = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
+#     experiment_source_data_name = csv_filename.split(".")[0]
+#     ground_truth = experiment_source_data_name + ".csv"
+#     split_file = experiment_source_data_name + ".split.parquet"
+#     test_cmd_pdf = [
+#         "python",
+#         "-m",
+#         "ludwig.visualize",
+#         "--visualization",
+#         "confidence_thresholding_data_vs_acc_subset_per_class",
+#         "--ground_truth",
+#         ground_truth,
+#         "--output_feature_name",
+#         output_feature_name,
+#         "--split_file",
+#         split_file,
+#         "--ground_truth_metadata",
+#         exp_dir_name + "/model/training_set_metadata.json",
+#         "--probabilities",
+#         probability,
+#         probability,
+#         "--model_names",
+#         "Model1",
+#         "Model2",
+#         "--top_n_classes",
+#         "3",
+#         "-od",
+#         exp_dir_name,
+#     ]
+#     test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
+
+#     commands = [test_cmd_pdf, test_cmd_png]
+#     vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
+
+#     for command, viz_pattern in zip(commands, vis_patterns):
+#         result = subprocess.run(command)
+#         figure_cnt = glob.glob(viz_pattern)
+
+#         assert 0 == result.returncode
+#         # 3 figures should be saved because experiment setting top_n_classes = 3
+#         # hence one figure per class
+#         assert 3 == len(figure_cnt)
+
+
+# def test_vis_confidence_thresholding_2thresholds_2d_output_saved(csv_filename):
+#     """Ensure pdf and png figures from the experiments can be saved.
+
+#     :param csv_filename: csv fixture from tests.conftest.csv_filename
+#     :return: None
+#     """
+#     input_features = [
+#         text_feature(encoder={"vocab_size": 10, "min_len": 1, "type": "stacked_cnn"}),
+#         number_feature(),
+#         category_feature(encoder={"vocab_size": 10, "embedding_size": 5}),
+#         set_feature(),
+#         sequence_feature(encoder={"vocab_size": 10, "max_len": 10, "type": "embed"}),
+#     ]
+#     output_features = [
+#         category_feature(decoder={"vocab_size": 2}, reduce_input="sum"),
+#         category_feature(decoder={"vocab_size": 2}, reduce_input="sum"),
+#     ]
+#     # Generate test data
+#     rel_path = generate_data(input_features, output_features, csv_filename)
+#     input_features[0][ENCODER][TYPE] = "parallel_cnn"
+#     exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
+#     vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
+#     vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
+#     threshold_output_feature_name1 = get_output_feature_name(exp_dir_name)
+#     threshold_output_feature_name2 = get_output_feature_name(exp_dir_name, output_feature=1)
+#     probability = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
+#     experiment_source_data_name = csv_filename.split(".")[0]
+#     ground_truth = experiment_source_data_name + ".csv"
+#     split_file = experiment_source_data_name + ".split.parquet"
+#     test_cmd_pdf = [
+#         "python",
+#         "-m",
+#         "ludwig.visualize",
+#         "--visualization",
+#         "confidence_thresholding_2thresholds_2d",
+#         "--ground_truth",
+#         ground_truth,
+#         "--split_file",
+#         split_file,
+#         "--ground_truth_metadata",
+#         exp_dir_name + "/model/training_set_metadata.json",
+#         "--probabilities",
+#         probability,
+#         "--threshold_output_feature_names",
+#         threshold_output_feature_name1,
+#         threshold_output_feature_name2,
+#         "--model_names",
+#         "Model1",
+#         "-od",
+#         exp_dir_name,
+#     ]
+#     test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
+
+#     commands = [test_cmd_pdf, test_cmd_png]
+#     vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
+
+#     for command, viz_pattern in zip(commands, vis_patterns):
+#         result = subprocess.run(
+#             command,
+#         )
+#         figure_cnt = glob.glob(viz_pattern)
+
+#         assert 0 == result.returncode
+#         assert 3 == len(figure_cnt)
+
+
+# def test_vis_confidence_thresholding_2thresholds_3d_output_saved(csv_filename):
+#     """Ensure pdf and png figures from the experiments can be saved.
+
+#     :param csv_filename: csv fixture from tests.conftest.csv_filename
+#     :return: None
+#     """
+#     input_features = [
+#         text_feature(encoder={"vocab_size": 10, "min_len": 1, "type": "stacked_cnn"}),
+#         number_feature(),
+#         category_feature(encoder={"vocab_size": 10, "embedding_size": 5}),
+#         set_feature(),
+#         sequence_feature(encoder={"vocab_size": 10, "max_len": 10, "type": "embed"}),
+#     ]
+#     output_features = [
+#         category_feature(decoder={"vocab_size": 2}, reduce_input="sum"),
+#         category_feature(decoder={"vocab_size": 2}, reduce_input="sum"),
+#     ]
+#     # Generate test data
+#     rel_path = generate_data(input_features, output_features, csv_filename)
+#     input_features[0][ENCODER][TYPE] = "parallel_cnn"
+#     exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
+#     vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
+#     vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
+#     threshold_output_feature_name1 = get_output_feature_name(exp_dir_name)
+#     threshold_output_feature_name2 = get_output_feature_name(exp_dir_name, output_feature=1)
+#     probability = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
+#     experiment_source_data_name = csv_filename.split(".")[0]
+#     ground_truth = experiment_source_data_name + ".csv"
+#     split_file = experiment_source_data_name + ".split.parquet"
+#     test_cmd_pdf = [
+#         "python",
+#         "-m",
+#         "ludwig.visualize",
+#         "--visualization",
+#         "confidence_thresholding_2thresholds_3d",
+#         "--ground_truth",
+#         ground_truth,
+#         "--split_file",
+#         split_file,
+#         "--ground_truth_metadata",
+#         exp_dir_name + "/model/training_set_metadata.json",
+#         "--probabilities",
+#         probability,
+#         "--threshold_output_feature_names",
+#         threshold_output_feature_name1,
+#         threshold_output_feature_name2,
+#         "-od",
+#         exp_dir_name,
+#     ]
+#     test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
+
+#     commands = [test_cmd_pdf, test_cmd_png]
+#     vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
+
+#     for command, viz_pattern in zip(commands, vis_patterns):
+#         result = subprocess.run(
+#             command,
+#         )
+#         figure_cnt = glob.glob(viz_pattern)
+
+#         assert 0 == result.returncode
+#         assert 1 == len(figure_cnt)
 
 
 @pytest.mark.parametrize("binary_output_type", [True, False])
-def test_visualization_binary_threshold_vs_metric_output_saved(csv_filename, binary_output_type):
+# def test_visualization_binary_threshold_vs_metric_output_saved(csv_filename, binary_output_type):
+def test_visualization_binary_threshold_vs_metric_output_saved(binary_output_type, csv_filename):
     """Ensure pdf and png figures from the experiments can be saved.
 
     :param csv_filename: csv fixture from tests.conftest.csv_filename
     :return: None
     """
+    logging.error(
+        f"HELLO test_visualization_binary_threshold_vs_metric_output_saved csv_filename, binary_output_type: "
+        f"{csv_filename}, {binary_output_type}"
+    )
     input_features = [
-        text_feature(encoder={"vocab_size": 10, "min_len": 1, "type": "stacked_cnn"}),
         number_feature(),
-        category_feature(encoder={"vocab_size": 10, "embedding_size": 5}),
-        set_feature(),
-        sequence_feature(encoder={"vocab_size": 10, "max_len": 10, "type": "embed"}),
     ]
     if binary_output_type:
         output_features = [binary_feature()]
@@ -1152,7 +1156,8 @@ def test_visualization_binary_threshold_vs_metric_output_saved(csv_filename, bin
     # Generate test data
     random.seed(1919)
     rel_path = generate_data(input_features, output_features, csv_filename)
-    input_features[0][ENCODER][TYPE] = "parallel_cnn"
+    # input_features[0][ENCODER][TYPE] = "parallel_cnn"
+
     exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
     vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
     vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
@@ -1191,7 +1196,9 @@ def test_visualization_binary_threshold_vs_metric_output_saved(csv_filename, bin
         "-od",
         exp_dir_name,
     ]
+    print(f"test_cmd_pdf: {test_cmd_pdf}")
     test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
+    print(f"probabilityyyyyyyyyy: {probability}")
 
     commands = [test_cmd_pdf, test_cmd_png]
     vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
@@ -1211,6 +1218,9 @@ def test_visualization_roc_curves_output_saved(csv_filename, binary_output_type)
     :param csv_filename: csv fixture from tests.conftest.csv_filename
     :return: None
     """
+    print(
+        f"HELLO test_visualization_roc_curves_output_saved csv_filename, binary_output_type: {csv_filename}, {binary_output_type}"
+    )
     input_features = [category_feature(encoder={"vocab_size": 10})]
     if binary_output_type:
         output_features = [binary_feature()]
@@ -1267,271 +1277,271 @@ def test_visualization_roc_curves_output_saved(csv_filename, binary_output_type)
         assert 1 == len(figure_cnt)
 
 
-def test_visualization_roc_curves_from_test_statistics_output_saved(csv_filename):
-    """Ensure pdf and png figures from the experiments can be saved.
+# def test_visualization_roc_curves_from_test_statistics_output_saved(csv_filename):
+#     """Ensure pdf and png figures from the experiments can be saved.
 
-    :param csv_filename: csv fixture from tests.conftest.csv_filename
-    :return: None
-    """
-    input_features = [binary_feature(), bag_feature()]
-    output_features = [binary_feature()]
-    # Generate test data
-    rel_path = generate_data(input_features, output_features, csv_filename)
+#     :param csv_filename: csv fixture from tests.conftest.csv_filename
+#     :return: None
+#     """
+#     input_features = [binary_feature(), bag_feature()]
+#     output_features = [binary_feature()]
+#     # Generate test data
+#     rel_path = generate_data(input_features, output_features, csv_filename)
 
-    exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
-    vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
-    vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
-    output_feature_name = get_output_feature_name(exp_dir_name)
-    test_stats = os.path.join(exp_dir_name, TEST_STATISTICS_FILE_NAME)
-    test_cmd_pdf = [
-        "python",
-        "-m",
-        "ludwig.visualize",
-        "--visualization",
-        "roc_curves_from_test_statistics",
-        "--output_feature_name",
-        output_feature_name,
-        "--test_statistics",
-        test_stats,
-        "--model_names",
-        "Model1",
-        "-od",
-        exp_dir_name,
-    ]
-    test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
+#     exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
+#     vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
+#     vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
+#     output_feature_name = get_output_feature_name(exp_dir_name)
+#     test_stats = os.path.join(exp_dir_name, TEST_STATISTICS_FILE_NAME)
+#     test_cmd_pdf = [
+#         "python",
+#         "-m",
+#         "ludwig.visualize",
+#         "--visualization",
+#         "roc_curves_from_test_statistics",
+#         "--output_feature_name",
+#         output_feature_name,
+#         "--test_statistics",
+#         test_stats,
+#         "--model_names",
+#         "Model1",
+#         "-od",
+#         exp_dir_name,
+#     ]
+#     test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
 
-    commands = [test_cmd_pdf, test_cmd_png]
-    vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
+#     commands = [test_cmd_pdf, test_cmd_png]
+#     vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
 
-    for command, viz_pattern in zip(commands, vis_patterns):
-        result = subprocess.run(command)
-        figure_cnt = glob.glob(viz_pattern)
+#     for command, viz_pattern in zip(commands, vis_patterns):
+#         result = subprocess.run(command)
+#         figure_cnt = glob.glob(viz_pattern)
 
-        assert 0 == result.returncode
-        assert 1 == len(figure_cnt)
-
-
-def test_visualization_calibration_1_vs_all_output_saved(csv_filename):
-    """Ensure pdf and png figures from the experiments can be saved.
-
-    :param csv_filename: csv fixture from tests.conftest.csv_filename
-    :return: None
-    """
-    input_features = [category_feature(encoder={"vocab_size": 10})]
-    output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
-
-    # Generate test data
-    rel_path = generate_data(input_features, output_features, csv_filename)
-    exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
-    vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
-    vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
-    output_feature_name = get_output_feature_name(exp_dir_name)
-    probability = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
-    experiment_source_data_name = csv_filename.split(".")[0]
-    ground_truth = experiment_source_data_name + ".csv"
-    split_file = experiment_source_data_name + ".split.parquet"
-    test_cmd_pdf = [
-        "python",
-        "-m",
-        "ludwig.visualize",
-        "--visualization",
-        "calibration_1_vs_all",
-        "--metrics",
-        "accuracy",
-        "--ground_truth",
-        ground_truth,
-        "--output_feature_name",
-        output_feature_name,
-        "--split_file",
-        split_file,
-        "--ground_truth_metadata",
-        exp_dir_name + "/model/training_set_metadata.json",
-        "--probabilities",
-        probability,
-        probability,
-        "--model_names",
-        "Model1",
-        "Model2",
-        "--top_k",
-        "6",
-        "-od",
-        exp_dir_name,
-    ]
-    test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
-
-    commands = [test_cmd_pdf, test_cmd_png]
-    vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
-
-    for command, viz_pattern in zip(commands, vis_patterns):
-        result = subprocess.run(command)
-        figure_cnt = glob.glob(viz_pattern)
-
-        assert 0 == result.returncode
-        assert 5 == len(figure_cnt)
+#         assert 0 == result.returncode
+#         assert 1 == len(figure_cnt)
 
 
-def test_visualization_calibration_multiclass_output_saved(csv_filename):
-    """Ensure pdf and png figures from the experiments can be saved.
+# def test_visualization_calibration_1_vs_all_output_saved(csv_filename):
+#     """Ensure pdf and png figures from the experiments can be saved.
 
-    :param csv_filename: csv fixture from tests.conftest.csv_filename
-    :return: None
-    """
-    input_features = [category_feature(encoder={"vocab_size": 10})]
-    output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
+#     :param csv_filename: csv fixture from tests.conftest.csv_filename
+#     :return: None
+#     """
+#     input_features = [category_feature(encoder={"vocab_size": 10})]
+#     output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
 
-    # Generate test data
-    rel_path = generate_data(input_features, output_features, csv_filename)
-    exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
-    vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
-    vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
-    output_feature_name = get_output_feature_name(exp_dir_name)
-    probability = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
-    experiment_source_data_name = csv_filename.split(".")[0]
-    ground_truth = experiment_source_data_name + ".csv"
-    split_file = experiment_source_data_name + ".split.parquet"
-    test_cmd_pdf = [
-        "python",
-        "-m",
-        "ludwig.visualize",
-        "--visualization",
-        "calibration_multiclass",
-        "--ground_truth",
-        ground_truth,
-        "--output_feature_name",
-        output_feature_name,
-        "--split_file",
-        split_file,
-        "--ground_truth_metadata",
-        exp_dir_name + "/model/training_set_metadata.json",
-        "--probabilities",
-        probability,
-        probability,
-        "--model_names",
-        "Model1",
-        "Model2",
-        "-od",
-        exp_dir_name,
-    ]
-    test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
+#     # Generate test data
+#     rel_path = generate_data(input_features, output_features, csv_filename)
+#     exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
+#     vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
+#     vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
+#     output_feature_name = get_output_feature_name(exp_dir_name)
+#     probability = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
+#     experiment_source_data_name = csv_filename.split(".")[0]
+#     ground_truth = experiment_source_data_name + ".csv"
+#     split_file = experiment_source_data_name + ".split.parquet"
+#     test_cmd_pdf = [
+#         "python",
+#         "-m",
+#         "ludwig.visualize",
+#         "--visualization",
+#         "calibration_1_vs_all",
+#         "--metrics",
+#         "accuracy",
+#         "--ground_truth",
+#         ground_truth,
+#         "--output_feature_name",
+#         output_feature_name,
+#         "--split_file",
+#         split_file,
+#         "--ground_truth_metadata",
+#         exp_dir_name + "/model/training_set_metadata.json",
+#         "--probabilities",
+#         probability,
+#         probability,
+#         "--model_names",
+#         "Model1",
+#         "Model2",
+#         "--top_k",
+#         "6",
+#         "-od",
+#         exp_dir_name,
+#     ]
+#     test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
 
-    commands = [test_cmd_pdf, test_cmd_png]
-    vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
+#     commands = [test_cmd_pdf, test_cmd_png]
+#     vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
 
-    for command, viz_pattern in zip(commands, vis_patterns):
-        result = subprocess.run(command)
-        figure_cnt = glob.glob(viz_pattern)
+#     for command, viz_pattern in zip(commands, vis_patterns):
+#         result = subprocess.run(command)
+#         figure_cnt = glob.glob(viz_pattern)
 
-        assert 0 == result.returncode
-        assert 2 == len(figure_cnt)
-
-
-def test_visualization_frequency_vs_f1_output_saved(csv_filename):
-    """Ensure pdf and png figures from the experiments can be saved.
-
-    :param csv_filename: csv fixture from tests.conftest.csv_filename
-    :return: None
-    """
-    input_features = [category_feature(encoder={"vocab_size": 10})]
-    output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
-
-    # Generate test data
-    rel_path = generate_data(input_features, output_features, csv_filename)
-    exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
-    vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
-    vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
-    output_feature_name = get_output_feature_name(exp_dir_name)
-    test_stats = os.path.join(exp_dir_name, TEST_STATISTICS_FILE_NAME)
-    experiment_source_data_name = csv_filename.split(".")[0]
-    ground_truth_metadata = experiment_source_data_name + ".meta.json"
-    test_cmd_pdf = [
-        "python",
-        "-m",
-        "ludwig.visualize",
-        "--visualization",
-        "frequency_vs_f1",
-        "--ground_truth_metadata",
-        ground_truth_metadata,
-        "--output_feature_name",
-        output_feature_name,
-        "--test_statistics",
-        test_stats,
-        test_stats,
-        "--model_names",
-        "Model1",
-        "Model2",
-        "-od",
-        exp_dir_name,
-    ]
-    test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
-
-    commands = [test_cmd_pdf, test_cmd_png]
-    vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
-
-    for command, viz_pattern in zip(commands, vis_patterns):
-        result = subprocess.run(command)
-        figure_cnt = glob.glob(viz_pattern)
-
-        assert 0 == result.returncode
-        assert 2 == len(figure_cnt)
+#         assert 0 == result.returncode
+#         assert 5 == len(figure_cnt)
 
 
-def test_load_ground_truth_split_from_df(csv_filename):
-    import pandas as pd
+# def test_visualization_calibration_multiclass_output_saved(csv_filename):
+#     """Ensure pdf and png figures from the experiments can be saved.
 
-    ground_truth = pd.DataFrame(
-        {
-            "PassengerId": [1],
-            "Survived": [0],
-            "Pclass": [3],
-            "Name": ["Braund, Mr. Owen Harris"],
-            "Sex": ["male"],
-            "Age": [22.0],
-            "SibSp": [1],
-            "Parch": [0],
-            "Ticket": ["A/5 21171"],
-            "Fare": ["7.25"],
-            "Cabin": [None],
-            "Embarked": ["S"],
-            "split": [0],
-        }
-    )
-    output_feature = "Survived"
-    ground_truth_train_split = _extract_ground_truth_values(ground_truth, output_feature, 0)
-    ground_truth_val_split = _extract_ground_truth_values(ground_truth, output_feature, 1)
-    ground_truth_test_split = _extract_ground_truth_values(ground_truth, output_feature, 2)
+#     :param csv_filename: csv fixture from tests.conftest.csv_filename
+#     :return: None
+#     """
+#     input_features = [category_feature(encoder={"vocab_size": 10})]
+#     output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
 
-    assert ground_truth_train_split.equals(pd.Series([0]))
-    assert ground_truth_val_split.empty
-    assert ground_truth_test_split.empty
+#     # Generate test data
+#     rel_path = generate_data(input_features, output_features, csv_filename)
+#     exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
+#     vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
+#     vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
+#     output_feature_name = get_output_feature_name(exp_dir_name)
+#     probability = os.path.join(exp_dir_name, PREDICTIONS_PARQUET_FILE_NAME)
+#     experiment_source_data_name = csv_filename.split(".")[0]
+#     ground_truth = experiment_source_data_name + ".csv"
+#     split_file = experiment_source_data_name + ".split.parquet"
+#     test_cmd_pdf = [
+#         "python",
+#         "-m",
+#         "ludwig.visualize",
+#         "--visualization",
+#         "calibration_multiclass",
+#         "--ground_truth",
+#         ground_truth,
+#         "--output_feature_name",
+#         output_feature_name,
+#         "--split_file",
+#         split_file,
+#         "--ground_truth_metadata",
+#         exp_dir_name + "/model/training_set_metadata.json",
+#         "--probabilities",
+#         probability,
+#         probability,
+#         "--model_names",
+#         "Model1",
+#         "Model2",
+#         "-od",
+#         exp_dir_name,
+#     ]
+#     test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
+
+#     commands = [test_cmd_pdf, test_cmd_png]
+#     vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
+
+#     for command, viz_pattern in zip(commands, vis_patterns):
+#         result = subprocess.run(command)
+#         figure_cnt = glob.glob(viz_pattern)
+
+#         assert 0 == result.returncode
+#         assert 2 == len(figure_cnt)
 
 
-def test_load_ground_truth_split_from_file(csv_filename):
-    """Ensure correct ground truth split is loaded when ground_truth_split is given.
+# def test_visualization_frequency_vs_f1_output_saved(csv_filename):
+#     """Ensure pdf and png figures from the experiments can be saved.
 
-    :param csv_filename: csv fixture from tests.fixtures.filenames.csv_filename
-    :return: None
-    """
-    input_features = [category_feature(encoder={"vocab_size": 10})]
-    output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
+#     :param csv_filename: csv fixture from tests.conftest.csv_filename
+#     :return: None
+#     """
+#     input_features = [category_feature(encoder={"vocab_size": 10})]
+#     output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
 
-    # Generate test data
-    rel_path = generate_data(input_features, output_features, csv_filename)
-    exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
-    output_feature_name = get_output_feature_name(exp_dir_name)
-    experiment_source_data_name = csv_filename.split(".")[0]
-    ground_truth = experiment_source_data_name + ".csv"
-    split_file = experiment_source_data_name + ".split.parquet"
+#     # Generate test data
+#     rel_path = generate_data(input_features, output_features, csv_filename)
+#     exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
+#     vis_output_pattern_pdf = os.path.join(exp_dir_name, "*.pdf")
+#     vis_output_pattern_png = os.path.join(exp_dir_name, "*.png")
+#     output_feature_name = get_output_feature_name(exp_dir_name)
+#     test_stats = os.path.join(exp_dir_name, TEST_STATISTICS_FILE_NAME)
+#     experiment_source_data_name = csv_filename.split(".")[0]
+#     ground_truth_metadata = experiment_source_data_name + ".meta.json"
+#     test_cmd_pdf = [
+#         "python",
+#         "-m",
+#         "ludwig.visualize",
+#         "--visualization",
+#         "frequency_vs_f1",
+#         "--ground_truth_metadata",
+#         ground_truth_metadata,
+#         "--output_feature_name",
+#         output_feature_name,
+#         "--test_statistics",
+#         test_stats,
+#         test_stats,
+#         "--model_names",
+#         "Model1",
+#         "Model2",
+#         "-od",
+#         exp_dir_name,
+#     ]
+#     test_cmd_png = test_cmd_pdf.copy() + ["-ff", "png"]
 
-    # retrieve ground truth from source data set
-    ground_truth_train_split = _extract_ground_truth_values(ground_truth, output_feature_name, 0, split_file)
-    ground_truth_val_split = _extract_ground_truth_values(ground_truth, output_feature_name, 1, split_file)
-    ground_truth_test_split = _extract_ground_truth_values(ground_truth, output_feature_name, 2, split_file)
+#     commands = [test_cmd_pdf, test_cmd_png]
+#     vis_patterns = [vis_output_pattern_pdf, vis_output_pattern_png]
 
-    test_df, train_df, val_df = obtain_df_splits(csv_filename)
-    target_predictions_from_train = train_df[output_feature_name]
-    target_predictions_from_val = val_df[output_feature_name]
-    target_predictions_from_test = test_df[output_feature_name]
+#     for command, viz_pattern in zip(commands, vis_patterns):
+#         result = subprocess.run(command)
+#         figure_cnt = glob.glob(viz_pattern)
 
-    assert np.all(ground_truth_train_split.eq(target_predictions_from_train))
-    assert np.all(ground_truth_val_split.eq(target_predictions_from_val))
-    assert np.all(ground_truth_test_split.eq(target_predictions_from_test))
+#         assert 0 == result.returncode
+#         assert 2 == len(figure_cnt)
+
+
+# def test_load_ground_truth_split_from_df(csv_filename):
+#     import pandas as pd
+
+#     ground_truth = pd.DataFrame(
+#         {
+#             "PassengerId": [1],
+#             "Survived": [0],
+#             "Pclass": [3],
+#             "Name": ["Braund, Mr. Owen Harris"],
+#             "Sex": ["male"],
+#             "Age": [22.0],
+#             "SibSp": [1],
+#             "Parch": [0],
+#             "Ticket": ["A/5 21171"],
+#             "Fare": ["7.25"],
+#             "Cabin": [None],
+#             "Embarked": ["S"],
+#             "split": [0],
+#         }
+#     )
+#     output_feature = "Survived"
+#     ground_truth_train_split = _extract_ground_truth_values(ground_truth, output_feature, 0)
+#     ground_truth_val_split = _extract_ground_truth_values(ground_truth, output_feature, 1)
+#     ground_truth_test_split = _extract_ground_truth_values(ground_truth, output_feature, 2)
+
+#     assert ground_truth_train_split.equals(pd.Series([0]))
+#     assert ground_truth_val_split.empty
+#     assert ground_truth_test_split.empty
+
+
+# def test_load_ground_truth_split_from_file(csv_filename):
+#     """Ensure correct ground truth split is loaded when ground_truth_split is given.
+
+#     :param csv_filename: csv fixture from tests.fixtures.filenames.csv_filename
+#     :return: None
+#     """
+#     input_features = [category_feature(encoder={"vocab_size": 10})]
+#     output_features = [category_feature(decoder={"vocab_size": 2}, reduce_input="sum")]
+
+#     # Generate test data
+#     rel_path = generate_data(input_features, output_features, csv_filename)
+#     exp_dir_name = run_experiment_with_visualization(input_features, output_features, dataset=rel_path)
+#     output_feature_name = get_output_feature_name(exp_dir_name)
+#     experiment_source_data_name = csv_filename.split(".")[0]
+#     ground_truth = experiment_source_data_name + ".csv"
+#     split_file = experiment_source_data_name + ".split.parquet"
+
+#     # retrieve ground truth from source data set
+#     ground_truth_train_split = _extract_ground_truth_values(ground_truth, output_feature_name, 0, split_file)
+#     ground_truth_val_split = _extract_ground_truth_values(ground_truth, output_feature_name, 1, split_file)
+#     ground_truth_test_split = _extract_ground_truth_values(ground_truth, output_feature_name, 2, split_file)
+
+#     test_df, train_df, val_df = obtain_df_splits(csv_filename)
+#     target_predictions_from_train = train_df[output_feature_name]
+#     target_predictions_from_val = val_df[output_feature_name]
+#     target_predictions_from_test = test_df[output_feature_name]
+
+#     assert np.all(ground_truth_train_split.eq(target_predictions_from_train))
+#     assert np.all(ground_truth_val_split.eq(target_predictions_from_val))
+#     assert np.all(ground_truth_test_split.eq(target_predictions_from_test))

@@ -194,6 +194,8 @@ def experiment_cli(
         config = load_yaml(config)
     backend = initialize_backend(backend or config.get("backend"))
 
+    logger.error(f"model_load_path: {model_load_path}")
+
     if model_load_path:
         model = LudwigModel.load(
             model_load_path,
@@ -205,6 +207,7 @@ def experiment_cli(
             callbacks=callbacks,
         )
     else:
+        logger.error(f"experiment.py: initializing new LudwigModel")
         model = LudwigModel(
             config=config,
             logging_level=logging_level,
