@@ -721,8 +721,6 @@ class ImageFeatureMixin(BaseFeatureMixin):
             # get required setup parameters for in_memory = False processing
             width = height = read_image_if_bytes_obj_and_resize.keywords["transform_fn"].crop_size[0]
             num_channels = len(read_image_if_bytes_obj_and_resize.keywords["transform_fn"].mean)
-            # TODO: confirm that this is the correct way to get the default image
-            default_image = get_gray_default_image(width, height, num_channels)
         else:
             # torchvision_parameters is None
             # perform Ludwig specified transformations
@@ -753,9 +751,9 @@ class ImageFeatureMixin(BaseFeatureMixin):
                 standardize_image=standardize_image,
             )
 
-            # TODO: alternatively use get_average_image() for unreachable images
-            default_image = get_gray_default_image(num_channels, height, width)
-            metadata[name]["reshape"] = (num_channels, height, width)
+        # TODO: alternatively use get_average_image() for unreachable images
+        default_image = get_gray_default_image(num_channels, height, width)
+        metadata[name]["reshape"] = (num_channels, height, width)
 
         # check to see if the active backend can support lazy loading of
         # image features from the hdf5 cache.
