@@ -789,6 +789,7 @@ class ImageFeatureMixin(BaseFeatureMixin):
                     if isinstance(res, np.ndarray):
                         image_dataset[i, :height, :width, :] = res
                     else:
+                        logger.warning(f"Failed to read image {img_entry} while preprocessing feature `{name}`. ")
                         image_dataset[i, :height, :width, :] = default_image
                         num_failed_image_reads += 1
                 h5_file.flush()
