@@ -717,9 +717,12 @@ class ImageFeatureMixin(BaseFeatureMixin):
             # add torchvision model id to preprocessing section for torchscript
             preprocessing_parameters["torchvision_model_type"] = model_type
             preprocessing_parameters["torchvision_model_variant"] = model_variant
+
             # get required setup parameters for in_memory = False processing
             width = height = read_image_if_bytes_obj_and_resize.keywords["transform_fn"].crop_size[0]
             num_channels = len(read_image_if_bytes_obj_and_resize.keywords["transform_fn"].mean)
+            # TODO: confirm that this is the correct way to get the default image
+            default_image = get_gray_default_image(width, height, num_channels)
         else:
             # torchvision_parameters is None
             # perform Ludwig specified transformations
