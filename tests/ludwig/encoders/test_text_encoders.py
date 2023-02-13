@@ -111,8 +111,8 @@ def test_hf_ludwig_model_e2e(tmpdir, csv_filename, mock_load_encoder_from_hf_hub
 @pytest.mark.parametrize("trainable", [True, False])
 def test_distilbert_param_updates(trainable: bool):
     max_sequence_length = 20
-    distil_bert_encoder = text_encoders.DistilBERTEncoder(
-        use_pretrained=False,
+    distil_bert_encoder = text_encoders.BERTEncoder(
+        use_pretrained=True,
         max_sequence_length=max_sequence_length,
         trainable=trainable,
     )

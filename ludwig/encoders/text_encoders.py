@@ -17,6 +17,7 @@ import logging
 from typing import Any, Callable, Dict, List, Optional, Type, Union
 
 import torch
+from peft import get_peft_model, LoraConfig
 from torch import nn
 
 from ludwig.api_annotations import DeveloperAPI
@@ -518,6 +519,15 @@ class BERTEncoder(HFTextEncoder):
         if use_pretrained and not saved_weights_in_checkpoint:
             pretrained_kwargs = pretrained_kwargs or {}
             transformer = load_pretrained_hf_model(BertModel, pretrained_model_name_or_path, **pretrained_kwargs)
+
+            peft_config = LoraConfig(
+                target_modules=["query", "value"],
+                inference_mode=False,
+                r=8,
+                lora_alpha=16,
+                lora_dropout=0.1,
+            )
+            transformer = get_peft_model(transformer, peft_config)
         else:
             transformer = self._init_transformer_from_scratch(BertModel, BertConfig, hf_config_params, vocab_size)
 
@@ -1296,6 +1306,15 @@ class DistilBERTEncoder(HFTextEncoder):
         if use_pretrained and not saved_weights_in_checkpoint:
             pretrained_kwargs = pretrained_kwargs or {}
             transformer = load_pretrained_hf_model(DistilBertModel, pretrained_model_name_or_path, **pretrained_kwargs)
+
+            peft_config = LoraConfig(
+                target_modules=["q_lin", "v_lin"],
+                inference_mode=False,
+                r=8,
+                lora_alpha=16,
+                lora_dropout=0.1,
+            )
+            transformer = get_peft_model(transformer, peft_config)
         else:
             transformer = self._init_transformer_from_scratch(
                 DistilBertModel, DistilBertConfig, hf_config_params, vocab_size
