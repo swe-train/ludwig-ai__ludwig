@@ -77,7 +77,6 @@ def load_dataset_uris(
     Optional[CacheableDataframe],
 ]:
     """Loads and returns any Ludwig dataset URIs as CacheableDataframes.
-
     Returns the input unmodified for any non-Ludwig datasets.
     """
     dataset_out = dataset
@@ -138,7 +137,6 @@ def list_datasets() -> List[str]:
 def get_datasets_output_features(dataset: str = None, include_competitions: bool = True) -> dict:
     """Returns a dictionary with the output features for each dataset. Optionally, you can pass a dataset name
     which will then cause the function to return a dictionary with the output features for that dataset.
-
     :param dataset: (str) name of the dataset
     :param include_competitions: (bool) whether to include the output features from kaggle competition datasets
     :return: (dict) dictionary with the output features for each dataset or a dictionary with the output features for
@@ -230,11 +228,8 @@ def cli(sys_argv):
 
 def __getattr__(name: str) -> Any:
     """Module-level __getattr__ allows us to return an instance of a class.  For example:
-
          from ludwig.datasets import titanic
-
     returns an instance of DatasetLoader configured to load titanic.
-
     If you want to download a dataset in a non-default ludwig cache directory, there are two options:
         1. set the LUDWIG_CACHE environment variable to your desired path before importing the dataset
         2. Use ludwig.datasets.get_dataset(dataset_name, cache_dir=<CACHE_DIR>)
