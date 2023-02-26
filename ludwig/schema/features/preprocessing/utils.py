@@ -2,6 +2,7 @@ from dataclasses import field
 
 from marshmallow import fields, ValidationError
 
+from ludwig.api_annotations import DeveloperAPI
 from ludwig.schema import utils as schema_utils
 from ludwig.schema.features.preprocessing.base import BasePreprocessingConfig
 from ludwig.utils.registry import Registry
@@ -9,6 +10,7 @@ from ludwig.utils.registry import Registry
 preprocessing_registry = Registry()
 
 
+@DeveloperAPI
 def register_preprocessor(name: str):
     def wrap(preprocessing_config: BasePreprocessingConfig):
         preprocessing_registry[name] = preprocessing_config
@@ -17,6 +19,7 @@ def register_preprocessor(name: str):
     return wrap
 
 
+@DeveloperAPI
 def PreprocessingDataclassField(feature_type: str):
     """Custom dataclass field that when used inside a dataclass will allow the user to specify a preprocessing
     config.
@@ -58,7 +61,7 @@ def PreprocessingDataclassField(feature_type: str):
 
     try:
         preprocessor = preprocessing_registry[feature_type]
-        load_default = preprocessor.Schema().load({"feature_type": feature_type})
+        load_default = lambda: preprocessor.Schema().load({"feature_type": feature_type})
         dump_default = preprocessor.Schema().dump({"feature_type": feature_type})
 
         return field(
@@ -69,7 +72,7 @@ def PreprocessingDataclassField(feature_type: str):
                     load_default=load_default,
                 )
             },
-            default_factory=lambda: load_default,
+            default_factory=load_default,
         )
     except Exception as e:
         raise ValidationError(

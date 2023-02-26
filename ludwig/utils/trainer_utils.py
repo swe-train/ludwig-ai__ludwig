@@ -1,5 +1,5 @@
 import logging
-from collections import OrderedDict
+from collections import defaultdict, OrderedDict
 from typing import Dict, List, Tuple
 
 try:
@@ -7,33 +7,49 @@ try:
 except ImportError:
     from typing_extensions import Literal
 
+from ludwig.api_annotations import DeveloperAPI
 from ludwig.constants import COMBINED, LOSS
 from ludwig.features.base_feature import OutputFeature
 from ludwig.models.base import BaseModel
 from ludwig.modules.metric_modules import get_best_function
-from ludwig.utils.data_utils import load_json, save_json
+from ludwig.utils.data_utils import save_json
 from ludwig.utils.metric_utils import TrainerMetric
 
 logger = logging.getLogger(__name__)
 
 
+@DeveloperAPI
 def initialize_trainer_metric_dict(output_features) -> Dict[str, Dict[str, List[TrainerMetric]]]:
     """Returns a dict of dict of metrics, output_feature_name -> metric_name -> List[TrainerMetric]."""
     metrics = OrderedDict()
 
     for output_feature_name, output_feature in output_features.items():
         metrics[output_feature_name] = OrderedDict()
-        for metric in output_feature.metric_functions:
+        for metric in output_feature.metric_names:
             metrics[output_feature_name][metric] = []
 
     metrics[COMBINED] = {LOSS: []}
     return metrics
 
 
+def get_latest_metrics_dict(
+    progress_tracker_metrics: Dict[str, Dict[str, List[TrainerMetric]]]
+) -> Dict[str, Dict[str, float]]:
+    """Returns a dict of field name -> metric name -> latest metric value."""
+    latest_metrics_dict = defaultdict(dict)
+    for feature_name, metrics_dict in progress_tracker_metrics.items():
+        for metric_name, metrics in metrics_dict.items():
+            if metrics:
+                # Metrics may be missing if computing metrics was excepted, if the metrics are entirely empty
+                # due to a missing subset, or if evaluate_training_set is False.
+                latest_metrics_dict[feature_name][metric_name] = metrics[-1][-1]
+    return latest_metrics_dict
+
+
+@DeveloperAPI
 def get_new_progress_tracker(
     batch_size: int,
-    best_eval_metric: float,
-    best_reduce_learning_rate_eval_metric: float,
+    best_eval_metric_value: float,
     best_increase_batch_size_eval_metric: float,
     learning_rate: float,
     output_features: Dict[str, OutputFeature],
@@ -44,12 +60,14 @@ def get_new_progress_tracker(
         batch_size=batch_size,
         steps=0,
         tune_checkpoint_num=0,
-        last_improvement_steps=0,
+        checkpoint_number=0,
+        best_eval_metric_steps=0,
+        best_eval_metric_epoch=0,
+        best_eval_metric_checkpoint_number=0,
         last_learning_rate_reduction_steps=0,
         last_increase_batch_size_steps=0,
-        best_eval_metric=best_eval_metric,
-        best_reduce_learning_rate_eval_metric=best_reduce_learning_rate_eval_metric,
-        last_reduce_learning_rate_eval_metric_improvement=0,
+        last_improvement_steps=0,
+        best_eval_metric_value=best_eval_metric_value,
         best_increase_batch_size_eval_metric=best_increase_batch_size_eval_metric,
         last_increase_batch_size_eval_metric_improvement=0,
         learning_rate=learning_rate,
@@ -58,12 +76,15 @@ def get_new_progress_tracker(
         train_metrics=initialize_trainer_metric_dict(output_features),
         validation_metrics=initialize_trainer_metric_dict(output_features),
         test_metrics=initialize_trainer_metric_dict(output_features),
-        last_improvement=0,
         last_learning_rate_reduction=0,
         last_increase_batch_size=0,
+        best_eval_train_metrics={},
+        best_eval_validation_metrics={},
+        best_eval_test_metrics={},
     )
 
 
+@DeveloperAPI
 class ProgressTracker:
     def __init__(
         self,
@@ -71,12 +92,14 @@ class ProgressTracker:
         batch_size: int,
         steps: int,
         tune_checkpoint_num: int,
+        checkpoint_number: int,
+        best_eval_metric_steps: int,
+        best_eval_metric_epoch: int,
+        best_eval_metric_checkpoint_number: int,
         last_improvement_steps: int,
         last_learning_rate_reduction_steps: int,
         last_increase_batch_size_steps: int,
-        best_eval_metric: float,
-        best_reduce_learning_rate_eval_metric: float,
-        last_reduce_learning_rate_eval_metric_improvement: int,
+        best_eval_metric_value: float,
         best_increase_batch_size_eval_metric: float,
         last_increase_batch_size_eval_metric_improvement: int,
         learning_rate: float,
@@ -85,9 +108,11 @@ class ProgressTracker:
         train_metrics: Dict[str, Dict[str, List[TrainerMetric]]],
         validation_metrics: Dict[str, Dict[str, List[TrainerMetric]]],
         test_metrics: Dict[str, Dict[str, List[TrainerMetric]]],
-        last_improvement: int,
         last_learning_rate_reduction: int,
         last_increase_batch_size: int,
+        best_eval_train_metrics: Dict[str, Dict[str, float]],
+        best_eval_validation_metrics: Dict[str, Dict[str, float]],
+        best_eval_test_metrics: Dict[str, Dict[str, float]],
     ):
         """JSON-serializable holder object that stores information related to training progress.
 
@@ -96,21 +121,61 @@ class ProgressTracker:
 
         Note that when a model resumes training from a checkpoint, the progress tracker is deserialized from JSON, which
         automatically converts TrainerMetrics namedtuples into regular (epoch, steps, value) tuples.
+
+        Args:
+            epoch: The current epoch number.
+            steps: The current step of training.
+            batch_size: The current batch size.
+            tune_checkpoint_num: The hyperopt checkpoint number (Ray Tune).
+            checkpoint_number: The current checkpoint number.
+
+            best_eval_metric_steps: The step of training that has the best evaluation so far.
+            best_eval_metric_epoch: The epoch of training that has the best evaluation so far.
+            best_eval_metric_checkpoint_number: The checkpoint number that has the best evaluation so far.
+
+            last_improvement_steps: The number of steps since the last improvement.
+            last_learning_rate_reduction_steps: The training step of the last learning rate reduction.
+            last_increase_batch_size_steps: The training_step of the the last batch size increase.
+
+            best_eval_metric_value: The metric value of the best evaluation so far.
+            best_increase_batch_size_eval_metric:
+                The metric value of the best evaluation so far, for increasing the batch size.
+
+            last_learning_rate_reduction: The number of steps since the last learning rate reduction.
+            last_increase_batch_size: The number of steps since the last batch size increase.
+
+            last_increase_batch_size_eval_metric_improvement:
+                The number of checkpoints since the last batch size increase.
+
+            num_reductions_learning_rate: The number of total reductions in learning rate.
+            num_increases_batch_size: The number of total increases in batch size.
+
+            train_metrics: Training metrics. <output feature name> -> <metric name> -> History of metrics.
+            validation_metrics: Validation metrics. <output feature name> -> <metric name> -> History of metrics.
+            test_metrics: Test metrics. <output feature name> -> <metric name> -> History of metrics.
+
+            best_eval_train_metrics:
+                Best eval train metrics: <output feature name> -> <metric name> -> <metric value>.
+            best_eval_validation_metrics:
+                Best eval validation metrics: <output feature name> -> <metric name> -> <metric value>.
+            best_eval_test_metrics:
+                Best eval test metrics: <output feature name> -> <metric name> -> <metric value>.
         """
         self.batch_size = batch_size
         self.epoch = epoch
         self.steps = steps
         self.tune_checkpoint_num = tune_checkpoint_num
+        self.checkpoint_number = checkpoint_number
+        self.best_eval_metric_steps = best_eval_metric_steps
+        self.best_eval_metric_epoch = best_eval_metric_epoch
+        self.best_eval_metric_checkpoint_number = best_eval_metric_checkpoint_number
         self.last_improvement_steps = last_improvement_steps
-        self.last_improvement = last_improvement
         self.last_learning_rate_reduction_steps = last_learning_rate_reduction_steps
         self.last_learning_rate_reduction = last_learning_rate_reduction
         self.last_increase_batch_size_steps = last_increase_batch_size_steps
         self.last_increase_batch_size = last_increase_batch_size
         self.learning_rate = learning_rate
-        self.best_eval_metric = best_eval_metric
-        self.best_reduce_learning_rate_eval_metric = best_reduce_learning_rate_eval_metric
-        self.last_reduce_learning_rate_eval_metric_improvement = last_reduce_learning_rate_eval_metric_improvement
+        self.best_eval_metric_value = best_eval_metric_value
         self.best_increase_batch_size_eval_metric = best_increase_batch_size_eval_metric
         self.last_increase_batch_size_eval_metric_improvement = last_increase_batch_size_eval_metric_improvement
         self.num_reductions_learning_rate = num_reductions_learning_rate
@@ -119,17 +184,19 @@ class ProgressTracker:
         self.validation_metrics = validation_metrics
         self.test_metrics = test_metrics
 
+        # Best metrics.
+        self.best_eval_train_metrics = best_eval_train_metrics
+        self.best_eval_validation_metrics = best_eval_validation_metrics
+        self.best_eval_test_metrics = best_eval_test_metrics
+
     def save(self, filepath):
         save_json(filepath, self.__dict__)
 
     @staticmethod
-    def load(filepath):
-        loaded = load_json(filepath)
-
+    def load(progress_tracking_dict: Dict):
         from ludwig.utils.backward_compatibility import upgrade_model_progress
 
-        loaded = upgrade_model_progress(loaded)
-
+        loaded = upgrade_model_progress(progress_tracking_dict)
         return ProgressTracker(**loaded)
 
     def log_metrics(self):
@@ -138,9 +205,13 @@ class ProgressTracker:
             "epoch": self.epoch,
             "steps": self.steps,
             "tune_checkpoint_num": self.tune_checkpoint_num,
+            "checkpoint_number": self.checkpoint_number,
             "last_improvement_steps": self.last_improvement_steps,
+            "best_eval_metric_steps": self.best_eval_metric_steps,
+            "best_eval_metric_epoch": self.best_eval_metric_epoch,
+            "best_eval_metric_checkpoint_number": self.best_eval_metric_checkpoint_number,
             "learning_rate": self.learning_rate,
-            "best_valid_metric": self.best_eval_metric,
+            "best_valid_metric": self.best_eval_metric_value,
             "num_reductions_lr": self.num_reductions_learning_rate,
             "num_increases_bs": self.num_increases_batch_size,
         }
@@ -159,17 +230,28 @@ class ProgressTracker:
                         # TODO: when loading an existing model, this loses metric values for all but the last epoch.
                         log_metrics[f"{metrics_dict_name}.{feature_name}.{metric_name}"] = metrics_tuples[-1][-1]
 
+        # Add best metrics.
+        for feature_name, metrics in self.best_eval_train_metrics.items():
+            for metric_name, metric_value in metrics.items():
+                log_metrics[f"best.train_metrics.{feature_name}.{metric_name}"] = metric_value
+        for feature_name, metrics in self.best_eval_validation_metrics.items():
+            for metric_name, metric_value in metrics.items():
+                log_metrics[f"best.validation_metrics.{feature_name}.{metric_name}"] = metric_value
+        for feature_name, metrics in self.best_eval_test_metrics.items():
+            for metric_name, metric_value in metrics.items():
+                log_metrics[f"best.test_metrics.{feature_name}.{metric_name}"] = metric_value
+
         return log_metrics
 
 
+@DeveloperAPI
 def append_metrics(
     model: BaseModel,
     dataset_name: Literal["train", "validation", "test"],
     results: Dict[str, Dict[str, float]],
     metrics_log: Dict[str, Dict[str, List[TrainerMetric]]],
-    tables: Dict[str, List[List[str]]],
     progress_tracker: ProgressTracker,
-) -> Tuple[Dict[str, Dict[str, List[TrainerMetric]]], Dict[str, List[List[str]]]]:
+) -> Dict[str, Dict[str, List[TrainerMetric]]]:
     epoch = progress_tracker.epoch
     steps = progress_tracker.steps
     for output_feature in model.output_features:
@@ -177,7 +259,7 @@ def append_metrics(
 
         # collect metric names based on output features metrics to
         # ensure consistent order of reporting metrics
-        metric_names = model.output_features[output_feature].metric_functions.keys()
+        metric_names = model.output_features[output_feature].metric_names
 
         for metric in metric_names:
             if metric in results[output_feature]:
@@ -186,24 +268,19 @@ def append_metrics(
                 metrics_log[output_feature][metric].append(TrainerMetric(epoch=epoch, step=steps, value=score))
                 scores.append(score)
 
-        tables[output_feature].append(scores)
-
     metrics_log[COMBINED][LOSS].append(TrainerMetric(epoch=epoch, step=steps, value=results[COMBINED][LOSS]))
-    tables[COMBINED].append([dataset_name, results[COMBINED][LOSS]])
-
-    return metrics_log, tables
+    return metrics_log
 
 
+@DeveloperAPI
 def get_total_steps(epochs: int, steps_per_epoch: int, train_steps: int):
-    """Returns train_steps if non-negative.
-
-    Otherwise, returns the number of epochs.
-    """
+    """Returns train_steps if provided, otherwise epochs * steps_per_epoch."""
     if train_steps:
         return train_steps
     return epochs * steps_per_epoch
 
 
+@DeveloperAPI
 def get_final_steps_per_checkpoint(
     steps_per_epoch: int, steps_per_checkpoint: int = 0, checkpoints_per_epoch: float = 0, should_log: bool = False
 ):
@@ -234,6 +311,7 @@ def get_final_steps_per_checkpoint(
     return steps_per_checkpoint
 
 
+@DeveloperAPI
 def get_training_report(
     validation_field: str,
     validation_metric: str,

@@ -15,14 +15,16 @@
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 from zlib import crc32
 
 import numpy as np
 from sklearn.model_selection import train_test_split
 
+from ludwig.api_annotations import DeveloperAPI
 from ludwig.backend.base import Backend
-from ludwig.constants import BINARY, CATEGORY, COLUMN, DATE, MIN_DATASET_SPLIT_ROWS, SPLIT, TYPE
+from ludwig.constants import BINARY, CATEGORY, DATE, MIN_DATASET_SPLIT_ROWS, SPLIT
+from ludwig.error import ConfigValidationError
 from ludwig.schema.split import (
     DateTimeSplitConfig,
     FixedSplitConfig,
@@ -30,14 +32,14 @@ from ludwig.schema.split import (
     RandomSplitConfig,
     StratifySplitConfig,
 )
+from ludwig.types import ModelConfigDict, PreprocessingConfigDict
 from ludwig.utils.data_utils import hash_dict, split_dataset_ttv
+from ludwig.utils.defaults import default_random_seed
 from ludwig.utils.registry import Registry
 from ludwig.utils.types import DataFrame
 
 split_registry = Registry()
-default_random_seed = 42
 logger = logging.getLogger(__name__)
-
 
 TMP_SPLIT_COL = "__SPLIT__"
 DEFAULT_PROBABILITIES = (0.7, 0.1, 0.2)
@@ -46,11 +48,11 @@ DEFAULT_PROBABILITIES = (0.7, 0.1, 0.2)
 class Splitter(ABC):
     @abstractmethod
     def split(
-        self, df: DataFrame, backend: Backend, random_seed: float = default_random_seed
+        self, df: DataFrame, backend: Backend, random_seed: int = default_random_seed
     ) -> Tuple[DataFrame, DataFrame, DataFrame]:
         pass
 
-    def validate(self, config: Dict[str, Any]):
+    def validate(self, config: ModelConfigDict):
         pass
 
     def has_split(self, split_index: int) -> bool:
@@ -150,25 +152,36 @@ class FixedSplitter(Splitter):
 
 
 def stratify_split_dataframe(
-    df: DataFrame, column: str, probabilities: List[float], random_seed: float
+    df: DataFrame, column: str, probabilities: List[float], backend: Backend, random_seed: float
 ) -> Tuple[DataFrame, DataFrame, DataFrame]:
     """Splits a dataframe into train, validation, and test sets based on the values of a column.
 
     The column must be categorical (including binary). The split is stratified, meaning that the proportion of each
     category in each split is the same as in the original dataset.
     """
+
     frac_train, frac_val, frac_test = probabilities
 
-    # Dataframe of just the column on which to stratify
-    y = df[[column]]
-    df_train, df_temp, _, y_temp = train_test_split(
-        df, y, stratify=y, test_size=(1.0 - frac_train), random_state=random_seed
-    )
-    # Split the temp dataframe into val and test dataframes.
+    def _safe_stratify(df, column, test_size):
+        # Get the examples with cardinality of 1
+        df_cadinalities = df.groupby(column)[column].size()
+        low_cardinality_elems = df_cadinalities.loc[lambda x: x == 1]
+        df_low_card = df[df[column].isin(low_cardinality_elems.index)]
+        df = df[~df[column].isin(low_cardinality_elems.index)]
+        y = df[[column]]
+
+        df_train, df_temp, _, _ = train_test_split(df, y, stratify=y, test_size=test_size, random_state=random_seed)
+
+        # concat the examples with cardinality of 1 to the training DF.
+        if len(df_low_card.index) > 0:
+            df_train = backend.df_engine.concat([df_train, df_low_card])
+
+        return df_train, df_temp
+
+    df_train, df_temp = _safe_stratify(df, column, 1.0 - frac_train)
+
     relative_frac_test = frac_test / (frac_val + frac_test)
-    df_val, df_test, _, _ = train_test_split(
-        df_temp, y_temp, stratify=y_temp, test_size=relative_frac_test, random_state=random_seed
-    )
+    df_val, df_test = _safe_stratify(df_temp, column, relative_frac_test)
 
     return df_train, df_val, df_test
 
@@ -183,7 +196,7 @@ class StratifySplitter(Splitter):
         self, df: DataFrame, backend: Backend, random_seed: float = default_random_seed
     ) -> Tuple[DataFrame, DataFrame, DataFrame]:
         if not backend.df_engine.partitioned:
-            return stratify_split_dataframe(df, self.column, self.probabilities, random_seed)
+            return stratify_split_dataframe(df, self.column, self.probabilities, backend, random_seed)
 
         # For a partitioned dataset, we can stratify split each partition individually
         # to obtain a global stratified split.
@@ -194,7 +207,7 @@ class StratifySplitter(Splitter):
             Returns a single DataFrame with the split column populated. Assumes that the split column is already present
             in the partition and has a default value of 0 (train).
             """
-            _, val, test = stratify_split_dataframe(partition, self.column, self.probabilities, random_seed)
+            _, val, test = stratify_split_dataframe(partition, self.column, self.probabilities, backend, random_seed)
             # Split column defaults to train, so only need to update val and test
             partition.loc[val.index, TMP_SPLIT_COL] = 1
             partition.loc[test.index, TMP_SPLIT_COL] = 2
@@ -209,16 +222,15 @@ class StratifySplitter(Splitter):
 
         return df_train, df_val, df_test
 
-    def validate(self, config: Dict[str, Any]):
-        features = config["input_features"] + config["output_features"]
-        feature_names = {f[COLUMN] for f in features}
-        if self.column not in feature_names:
-            logger.info(
-                f"Stratify column {self.column} is not among the features. "
-                f"Cannot establish if it is a binary or category"
+    def validate(self, config: "ModelConfig"):  # noqa: F821
+        feature_config = config.get_feature_config(self.column)
+        if not feature_config:
+            raise ConfigValidationError(
+                f"Stratify column {self.column} is not among the features: {config.get_feature_names()}."
             )
-        elif [f for f in features if f[COLUMN] == self.column][0][TYPE] not in {BINARY, CATEGORY}:
-            raise ValueError(f"Feature for stratify column {self.column} must be binary or category")
+
+        if feature_config.type not in {BINARY, CATEGORY}:
+            raise ConfigValidationError(f"Feature for stratify column {self.column} must be binary or category.")
 
     def has_split(self, split_index: int) -> bool:
         return self.probabilities[split_index] > 0
@@ -271,15 +283,13 @@ class DatetimeSplitter(Splitter):
         # For Dask, split by partition, as splitting by row is very inefficient.
         return tuple(backend.df_engine.split(df, self.probabilities))
 
-    def validate(self, config: Dict[str, Any]):
-        features = config["input_features"] + config["output_features"]
-        feature_names = {f[COLUMN] for f in features}
-        if self.column not in feature_names:
-            logger.info(
-                f"Datetime split column {self.column} is not among the features. "
-                f"Cannot establish if it is a valid datetime."
+    def validate(self, config: "ModelConfig"):  # noqa: F821
+        feature_config = config.get_feature_config(self.column)
+        if not feature_config:
+            raise ConfigValidationError(
+                f"Datetime split column {self.column} is not among the features: {config.get_feature_names()}."
             )
-        elif [f for f in features if f[COLUMN] == self.column][0][TYPE] not in {DATE}:
+        if feature_config.type != DATE:
             raise ValueError(f"Feature for datetime split column {self.column} must be a datetime")
 
     def has_split(self, split_index: int) -> bool:
@@ -339,6 +349,7 @@ class HashSplitter(Splitter):
         return HashSplitConfig
 
 
+@DeveloperAPI
 def get_splitter(type: Optional[str] = None, **kwargs) -> Splitter:
     splitter_cls = split_registry.get(type)
     if splitter_cls is None:
@@ -346,9 +357,10 @@ def get_splitter(type: Optional[str] = None, **kwargs) -> Splitter:
     return splitter_cls(**kwargs)
 
 
+@DeveloperAPI
 def split_dataset(
     df: DataFrame,
-    global_preprocessing_parameters: Dict[str, Any],
+    global_preprocessing_parameters: PreprocessingConfigDict,
     backend: Backend,
     random_seed: float = default_random_seed,
 ) -> Tuple[DataFrame, DataFrame, DataFrame]:

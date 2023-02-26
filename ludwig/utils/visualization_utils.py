@@ -17,6 +17,7 @@ import copy
 import logging
 from collections import Counter
 from sys import platform
+from typing import Dict, List
 
 import numpy as np
 import pandas as pd
@@ -59,11 +60,6 @@ RAY_TUNE_INT_SPACES = {"randint", "qrandint", "lograndint", "qlograndint"}
 RAY_TUNE_CATEGORY_SPACES = {"choice", "grid_search"}
 
 _matplotlib_34 = version.parse(mpl.__version__) >= version.parse("3.4")
-
-
-# plt.rc('xtick', labelsize='x-large')
-# plt.rc('ytick', labelsize='x-large')
-# plt.rc('axes', labelsize='x-large')
 
 
 def visualize_callbacks(callbacks, fig):
@@ -904,6 +900,57 @@ def roc_curves(
         plt.show()
 
 
+def precision_recall_curves_plot(
+    precision_recalls: Dict[str, List[float]],
+    model_names: List[str],
+    title: str = None,
+    filename: str = None,
+    callbacks=None,
+):
+    """Generates a precision recall curve for each model in the model_names list.
+
+    Args:
+        precision_recalls: A list of dictionaries representing the precision and recall values for each model
+            in model_names. Each dictionary has two keys: "precisions" and "recalls".
+    """
+    sns.set_style("whitegrid")
+
+    colors = plt.get_cmap("tab10").colors
+
+    _, ax = plt.subplots()
+
+    ax.set_xlim(0, 1)
+    # Create ticks for every 0.1 increment
+    ax.set_xticks(np.linspace(0, 1, 11))
+    ax.set_xlabel("Recall")
+
+    ax.set_ylim(0, 1)
+    # Create ticks for every 0.1 increment
+    ax.set_yticks(np.linspace(0, 1, 11))
+    ax.set_ylabel("Precision")
+
+    if title is not None:
+        ax.set_title(title)
+
+    for i in range(len(precision_recalls)):
+        model_name = model_names[i] if model_names is not None and i < len(model_names) else ""
+        ax.plot(
+            precision_recalls[i]["recalls"],
+            precision_recalls[i]["precisions"],
+            label=model_name,
+            color=colors[i],
+            linewidth=3,
+        )
+
+    ax.legend(frameon=True)
+    plt.tight_layout()
+    visualize_callbacks(callbacks, plt.gcf())
+    if filename:
+        plt.savefig(filename)
+    else:
+        plt.show()
+
+
 def calibration_plot(
     fraction_positives,
     mean_predicted_values,
@@ -976,9 +1023,14 @@ def brier_plot(
     filename=None,
     callbacks=None,
 ):
-
-    fig, ax = plt.subplots()
     sns.set_style("whitegrid")
+
+    # Dynamically set the size of the plot based on the number of labels
+    # Use minimum size to prevent plot from being too small
+    default_width, default_height = plt.rcParams.get("figure.figsize")
+    width = max(default_width, len(class_names) / 2)
+    height = max(default_height, len(class_names) / 2)
+    fig, ax = plt.subplots(figsize=(width, height))
 
     if title is not None:
         plt.title(title)
@@ -999,9 +1051,19 @@ def brier_plot(
     ax.set_xlabel("class")
     ax.set_ylabel("brier score")
     if class_names is not None:
-        ax.set_xticks(x, class_names)
+        ax.set_xticks(
+            x,
+            class_names,
+            rotation=45,
+            ha="center",
+        )
     else:
-        ax.set_xticks(x, [str(i) for i in range(n_classes)])
+        ax.set_xticks(
+            x,
+            [str(i) for i in range(n_classes)],
+            rotation=45,
+            ha="center",
+        )
 
     for i in range(n_algorithms):
         # Plot bar for each class
@@ -1068,28 +1130,53 @@ def confusion_matrix_plot(
     callbacks=None,
 ):
     mpl.rcParams.update({"figure.autolayout": True})
-    fig, ax = plt.subplots()
+
+    # Dynamically set the size of the plot based on the number of labels
+    # Use minimum size to prevent plot from being too small
+    default_width, default_height = plt.rcParams.get("figure.figsize")
+    width = max(default_width, len(labels))
+    height = max(default_height, len(labels))
+    fig, ax = plt.subplots(figsize=(width, height))
 
     ax.invert_yaxis()
     ax.xaxis.tick_top()
     ax.xaxis.set_label_position("top")
 
-    cax = ax.matshow(confusion_matrix, cmap="viridis")
+    # Set alpha value to prevent blue hues from being too dark
+    cax = ax.matshow(confusion_matrix, cmap="Blues", alpha=0.6)
+    # Annotate confusion matrix plot
+    for (i, j), z in np.ndenumerate(confusion_matrix):
+        # Format differently based on whether the value is normalized or not
+        if z.is_integer():
+            z_format = f"{z:.0f}"
+        else:
+            z_format = f"{z:.3f}"
+        ax.text(
+            j,
+            i,
+            z_format,
+            ha="center",
+            va="center",
+            color="black",
+            fontweight="medium",
+            wrap=True,
+        )
 
     ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
     ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
     ax.set_xticklabels([""] + labels, rotation=45, ha="left")
-    ax.set_yticklabels([""] + labels)
+    ax.set_yticklabels([""] + labels, rotation=45, ha="right")
     ax.grid(False)
     ax.tick_params(axis="both", which="both", length=0)
-    fig.colorbar(cax, ax=ax, extend="max")
+    # https://stackoverflow.com/a/26720422/10102370 works nicely for square plots
+    fig.colorbar(cax, ax=ax, extend="max", fraction=0.046, pad=0.04)
     ax.set_xlabel(f"Predicted {output_feature_name}")
     ax.set_ylabel(f"Actual {output_feature_name}")
 
     plt.tight_layout()
     visualize_callbacks(callbacks, plt.gcf())
     if filename:
-        plt.savefig(filename)
+        plt.savefig(filename, bbox_inches="tight")
     else:
         plt.show()
 
@@ -1108,14 +1195,14 @@ def double_axis_line_plot(
 
     colors = plt.get_cmap("tab10").colors
 
-    fig, ax1 = plt.subplots()
+    # Dynamically adjust figure size based on number of labels
+    default_width, default_height = plt.rcParams.get("figure.figsize")
+    width = max(default_width, len(labels) / 3)
+    height = max(default_height, len(labels) / 3)
+    fig, ax1 = plt.subplots(layout="constrained", figsize=(width, height))
 
     if title is not None:
         ax1.set_title(title)
-
-    # ax1.grid(which='both')
-    # ax1.grid(which='minor', alpha=0.5)
-    # ax1.grid(which='major', alpha=0.75)
 
     ax1.set_xlabel(f"class (sorted by {y1_name})")
     ax1.set_xlim(0, len(y1_sorted) - 1)
@@ -1249,7 +1336,11 @@ def bar_plot(
 
     sns.set_style("whitegrid")
 
-    fig, ax = plt.subplots()
+    # Dynamically set the size of the plot based on the number of labels
+    # Use minimum size to prevent plot from being too small
+    default_width, default_height = plt.rcParams.get("figure.figsize")
+    width = max(default_width, len(labels) / 2)
+    _, ax = plt.subplots(figsize=(width, default_height))
 
     ax.grid(which="both")
     ax.grid(which="minor", alpha=0.5)

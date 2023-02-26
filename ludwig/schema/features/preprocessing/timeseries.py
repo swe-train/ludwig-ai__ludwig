@@ -1,17 +1,17 @@
-from marshmallow_dataclass import dataclass
-
-from ludwig.constants import MISSING_VALUE_STRATEGY_OPTIONS, PREPROCESSING, TIMESERIES
+from ludwig.api_annotations import DeveloperAPI
+from ludwig.constants import FILL_WITH_CONST, MISSING_VALUE_STRATEGY_OPTIONS, PREPROCESSING, TIMESERIES
 from ludwig.schema import utils as schema_utils
 from ludwig.schema.features.preprocessing.base import BasePreprocessingConfig
 from ludwig.schema.features.preprocessing.utils import register_preprocessor
-from ludwig.schema.metadata.feature_metadata import FEATURE_METADATA
+from ludwig.schema.metadata import FEATURE_METADATA
+from ludwig.schema.utils import ludwig_dataclass
 from ludwig.utils.tokenizers import tokenizer_registry
 
 
+@DeveloperAPI
 @register_preprocessor(TIMESERIES)
-@dataclass(repr=False)
+@ludwig_dataclass
 class TimeseriesPreprocessingConfig(BasePreprocessingConfig):
-
     tokenizer: str = schema_utils.StringOptions(
         tokenizer_registry.keys(),
         default="space",
@@ -38,13 +38,13 @@ class TimeseriesPreprocessingConfig(BasePreprocessingConfig):
         ["left", "right"],
         default="right",
         allow_none=False,
-        description="the direction of the padding. right and left are available options.",
+        description="The direction of the padding.",
         parameter_metadata=FEATURE_METADATA[TIMESERIES][PREPROCESSING]["padding"],
     )
 
     missing_value_strategy: str = schema_utils.StringOptions(
         MISSING_VALUE_STRATEGY_OPTIONS,
-        default="fill_with_const",
+        default=FILL_WITH_CONST,
         allow_none=False,
         description="What strategy to follow when there's a missing value in a text column",
         parameter_metadata=FEATURE_METADATA[TIMESERIES][PREPROCESSING]["missing_value_strategy"],

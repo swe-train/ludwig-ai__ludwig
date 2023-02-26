@@ -22,6 +22,7 @@ from typing import List, Optional, Set, Union
 
 import numpy as np
 
+from ludwig.constants import PADDING_SYMBOL, START_SYMBOL, STOP_SYMBOL, UNKNOWN_SYMBOL
 from ludwig.data.dataframe.base import DataFrameEngine
 from ludwig.data.dataframe.pandas import PANDAS
 from ludwig.utils.fs_utils import open_file
@@ -33,13 +34,7 @@ PANDAS_TRUE_STRS = {"true"}
 PANDAS_FALSE_STRS = {"false"}
 
 BOOL_TRUE_STRS = {"yes", "y", "true", "t", "1", "1.0"}
-BOOL_FALSE_STRS = {"no", "n", "false", "f", "0", "0.0"}
-
-# Special symbols.
-STOP_SYMBOL = "<EOS>"
-START_SYMBOL = "<SOS>"
-PADDING_SYMBOL = "<PAD>"
-UNKNOWN_SYMBOL = "<UNK>"
+BOOL_FALSE_STRS = {"no", "n", "false", "f", "0", "0.0", "-1", "-1.0"}
 
 logger = logging.getLogger(__name__)
 
@@ -267,6 +262,11 @@ def create_vocabulary(
             vocab = tokenizer.get_vocab()
             vocab = list(vocab.keys())
         except NotImplementedError:
+            logger.warning(
+                "HuggingFace tokenizer does not have a get_vocab() method. "
+                + "Using tokenizer.tokenizer.vocab_size and tokenizer.tokenizer._convert_id_to_token "
+                + "to build the vocabulary."
+            )
             vocab = []
             for idx in range(tokenizer.tokenizer.vocab_size):
                 vocab.append(tokenizer.tokenizer._convert_id_to_token(idx))
@@ -276,11 +276,21 @@ def create_vocabulary(
         unk_token = tokenizer.get_unk_token()
 
         if unk_token is None:
+            logger.warning(
+                "No unknown token found in HuggingFace tokenizer. Adding one. "
+                + "NOTE: This will change the vocabulary size and may affect model "
+                + "performance, particularly if the model weights are frozen."
+            )
             vocab = [unknown_symbol] + vocab
         else:
             unknown_symbol = unk_token
 
         if pad_token is None and add_special_symbols:
+            logger.warning(
+                "No padding token found in HuggingFace tokenizer. Adding one. "
+                + "NOTE: This will change the vocabulary size and may affect model "
+                + "performance, particularly if the model weights are frozen."
+            )
             vocab = [padding_symbol] + vocab
         else:
             padding_symbol = pad_token

@@ -47,6 +47,10 @@ class VersionTransformation:
         """Transforms the sepcified config, returns the transformed config."""
         prefixes = self.prefixes if self.prefixes else [""]
         for prefix in prefixes:
+            if prefix and (prefix not in config or not config[prefix]):
+                # If the prefix is non-empty (transformation applies to a specific section), but the section is either
+                # absent or empty, then skip.
+                continue
             config = self.transform_config_with_prefix(config, prefix)
         return config
 
@@ -142,7 +146,7 @@ class VersionTransformationRegistry:
 
         def in_range(v, to_version, from_version):
             v = pkg_version.parse(v)
-            return from_version < v <= to_version
+            return from_version <= v <= to_version
 
         versions = [v for v in self._registry.keys() if in_range(v, to_version, from_version)]
 

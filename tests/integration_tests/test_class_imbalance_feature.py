@@ -8,7 +8,7 @@ import pytest
 
 from ludwig.api import LudwigModel
 from ludwig.backend import LocalBackend
-from tests.integration_tests.utils import create_data_set_to_use, spawn
+from tests.integration_tests.utils import create_data_set_to_use, RAY_BACKEND_CONFIG, spawn
 
 try:
     import ray
@@ -18,20 +18,6 @@ except ImportError:
     ray = None
 
 rs = np.random.RandomState(42)
-RAY_BACKEND_CONFIG = {
-    "type": "ray",
-    "processor": {
-        "parallelism": 2,
-    },
-    "trainer": {
-        "use_gpu": False,
-        "num_workers": 2,
-        "resources_per_worker": {
-            "CPU": 0.1,
-            "GPU": 0,
-        },
-    },
-}
 
 
 @contextlib.contextmanager
@@ -115,8 +101,8 @@ def run_test_imbalance_local(
 
     input_train_set = input_df.sample(frac=0.7, replace=False)
     processed_len = output_dataset[0].size
-    processed_target_pos = sum(output_dataset[0].dataset["Label_mZFLky"])
-    processed_target_neg = len(output_dataset[0].dataset["Label_mZFLky"]) - processed_target_pos
+    processed_target_pos = sum(output_dataset[0].dataset["Label_2Xl8CP"])
+    processed_target_neg = len(output_dataset[0].dataset["Label_2Xl8CP"]) - processed_target_pos
     assert len(input_train_set) == 140
     assert 0.05 <= len(input_train_set[input_train_set["Label"] == 1]) / len(input_train_set) <= 0.15
     assert round(processed_target_pos / processed_target_neg, 1) == 0.5

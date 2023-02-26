@@ -55,7 +55,7 @@ from ludwig.constants import (
 from ludwig.data.dataset.base import Dataset
 from ludwig.data.postprocessing import convert_predictions, postprocess
 from ludwig.data.preprocessing import load_metadata, preprocess_for_prediction, preprocess_for_training
-from ludwig.features.feature_registries import update_config_with_metadata
+from ludwig.features.feature_registries import update_config_with_metadata, update_config_with_model
 from ludwig.globals import (
     LUDWIG_VERSION,
     MODEL_HYPERPARAMETERS_FILE_NAME,
@@ -73,7 +73,9 @@ from ludwig.models.predictor import (
 )
 from ludwig.models.registry import model_type_registry
 from ludwig.schema.model_config import ModelConfig
+from ludwig.types import ModelConfigDict, TrainingSetMetadataDict
 from ludwig.utils import metric_utils
+from ludwig.utils.backward_compatibility import upgrade_config_dict_to_latest_version
 from ludwig.utils.config_utils import get_preprocessing_params
 from ludwig.utils.data_utils import (
     figure_data_format,
@@ -86,6 +88,7 @@ from ludwig.utils.data_utils import (
 from ludwig.utils.dataset_utils import generate_dataset_statistics
 from ludwig.utils.defaults import default_random_seed
 from ludwig.utils.fs_utils import makedirs, path_exists, upload_output_directory
+from ludwig.utils.heuristics import get_auto_learning_rate
 from ludwig.utils.misc_utils import (
     get_commit_hash,
     get_file_names,
@@ -155,7 +158,7 @@ class PreprocessedDataset:
     training_set: Dataset
     validation_set: Dataset
     test_set: Dataset
-    training_set_metadata: Dict[str, Any]
+    training_set_metadata: TrainingSetMetadataDict
 
     # TODO(daniel): deprecate multiple return value unpacking and indexed access
     def __iter__(self):
@@ -299,7 +302,7 @@ class LudwigModel:
             config_dict = copy.deepcopy(config)
             self.config_fp = None
 
-        self._user_config = config_dict
+        self._user_config = upgrade_config_dict_to_latest_version(config_dict)
 
         # Initialize the config object
         self.config_obj = ModelConfig.from_dict(self._user_config)
@@ -434,9 +437,9 @@ class LudwigModel:
             `(training_set, validation_set, test_set)`.
             `output_directory` filepath to where training results are stored.
         """
-        if HYPEROPT in self._user_config:
+        if self._user_config.get(HYPEROPT):
             print_boxed("WARNING")
-            logger.info(HYPEROPT_WARNING)
+            logger.warning(HYPEROPT_WARNING)
 
         # setup directories and file names
         if model_resume_path is not None:
@@ -444,7 +447,9 @@ class LudwigModel:
                 output_directory = model_resume_path
             else:
                 if self.backend.is_coordinator():
-                    logger.info("Model resume path does not exists, " "starting training from scratch")
+                    logger.info(
+                        f"Model resume path '{model_resume_path}' does not exist, starting training from scratch"
+                    )
                 model_resume_path = None
 
         if model_resume_path is None:
@@ -520,7 +525,12 @@ class LudwigModel:
                         logger.info(tabulate(experiment_description, tablefmt="fancy_grid"))
 
                         print_boxed("LUDWIG CONFIG")
-                        logger.info(pformat(self.config_obj.to_dict(), indent=4))
+                        logger.info("User-specified config (with upgrades):\n")
+                        logger.info(pformat(self._user_config, indent=4))
+                        logger.info(
+                            "\nFull config saved to:\n"
+                            f"{output_directory}/{experiment_name}/model/model_hyperparameters.json"
+                        )
 
                 preprocessed_data = self.preprocess(
                     dataset=dataset,
@@ -576,7 +586,14 @@ class LudwigModel:
                 update_config_with_metadata(self.config_obj, training_set_metadata)
                 logger.info("Warnings and other logs:")
                 self.model = LudwigModel.create_model(self.config_obj, random_seed=random_seed)
+                # update config with properties determined during model instantiation
+                update_config_with_model(self.config_obj, self.model)
                 set_saved_weights_in_checkpoint_flag(self.config_obj)
+
+            # auto tune learning rate
+            if self.config_obj.trainer.learning_rate == AUTO:
+                detected_learning_rate = get_auto_learning_rate(self.config_obj)
+                self.config_obj.trainer.learning_rate = detected_learning_rate
 
             with self.backend.create_trainer(
                 model=self.model,
@@ -593,29 +610,7 @@ class LudwigModel:
                     self.config_obj.trainer.to_dict().get(BATCH_SIZE, None) == AUTO
                     or self.config_obj.trainer.to_dict().get(EVAL_BATCH_SIZE, None) == AUTO
                 ):
-                    # TODO (ASN): add support for substitute_with_max parameter
-                    # TODO(travis): detect train and eval batch sizes separately (enable / disable gradients)
-                    tuned_batch_size = trainer.tune_batch_size(
-                        self.config_obj.to_dict(), training_set, random_seed=random_seed
-                    )
-
-                    # TODO(travis): pass these in as args to trainer when we call train,
-                    #  to avoid setting state on possibly remote trainer
-                    if self.config_obj.trainer.batch_size == AUTO:
-                        self.config_obj.trainer.batch_size = tuned_batch_size
-                        trainer.batch_size = tuned_batch_size
-
-                    if self.config_obj.trainer.eval_batch_size in {AUTO, None}:
-                        self.config_obj.trainer.eval_batch_size = tuned_batch_size
-                        trainer.eval_batch_size = tuned_batch_size
-
-                # auto tune learning rate
-                if self.config_obj.trainer.learning_rate == AUTO:
-                    tuned_learning_rate = trainer.tune_learning_rate(
-                        self.config_obj.to_dict(), training_set, random_seed=random_seed
-                    )
-                    self.config_obj.trainer.learning_rate = tuned_learning_rate
-                    trainer.set_base_learning_rate(tuned_learning_rate)
+                    self._tune_batch_size(trainer, training_set, random_seed=random_seed)
 
                 # train model
                 if self.backend.is_coordinator():
@@ -784,6 +779,8 @@ class LudwigModel:
         if not self.model:
             update_config_with_metadata(self.config_obj, training_set_metadata)
             self.model = LudwigModel.create_model(self.config_obj, random_seed=random_seed)
+            # update config with properties determined during model instantiation
+            update_config_with_model(self.config_obj, self.model)
             set_saved_weights_in_checkpoint_flag(self.config_obj)
 
         if not self._online_trainer:
@@ -791,7 +788,28 @@ class LudwigModel:
                 config=self.config_obj.trainer, model=self.model, random_seed=random_seed
             )
 
+            if (
+                self.config_obj.trainer.to_dict().get(BATCH_SIZE, None) == AUTO
+                or self.config_obj.trainer.to_dict().get(EVAL_BATCH_SIZE, None) == AUTO
+            ):
+                self._tune_batch_size(self._online_trainer, dataset, random_seed=random_seed)
+
         self.model = self._online_trainer.train_online(training_dataset)
+
+    def _tune_batch_size(self, trainer, dataset, random_seed: int = default_random_seed):
+        # TODO (ASN): add support for substitute_with_max parameter
+        # TODO(travis): detect train and eval batch sizes separately (enable / disable gradients)
+        tuned_batch_size = trainer.tune_batch_size(self.config_obj.to_dict(), dataset, random_seed=random_seed)
+
+        # TODO(travis): pass these in as args to trainer when we call train,
+        #  to avoid setting state on possibly remote trainer
+        if self.config_obj.trainer.batch_size == AUTO:
+            self.config_obj.trainer.batch_size = tuned_batch_size
+            trainer.batch_size = tuned_batch_size
+
+        if self.config_obj.trainer.eval_batch_size in {AUTO, None}:
+            self.config_obj.trainer.eval_batch_size = tuned_batch_size
+            trainer.eval_batch_size = tuned_batch_size
 
     def predict(
         self,
@@ -1179,9 +1197,9 @@ class LudwigModel:
             `(training_set, validation_set, test_set)`, `output_directory`
             filepath string to where results are stored.
         """
-        if HYPEROPT in self._user_config:
+        if self._user_config.get(HYPEROPT):
             print_boxed("WARNING")
-            logger.info(HYPEROPT_WARNING)
+            logger.warning(HYPEROPT_WARNING)
 
         (train_stats, preprocessed_data, output_directory) = self.train(
             dataset=dataset,
@@ -1332,48 +1350,50 @@ class LudwigModel:
     ) -> PreprocessedDataset:
         """This function is used to preprocess data.
 
-        # Inputs
+        # Args:
+            :param dataset: (Union[str, dict, pandas.DataFrame], default: `None`)
+                source containing the entire dataset to be used in the experiment.
+                If it has a split column, it will be used for splitting
+                (0 for train, 1 for validation, 2 for test),
+                otherwise the dataset will be randomly split.
+            :param training_set: (Union[str, dict, pandas.DataFrame], default: `None`)
+                source containing training data.
+            :param validation_set: (Union[str, dict, pandas.DataFrame], default: `None`)
+                source containing validation data.
+            :param test_set: (Union[str, dict, pandas.DataFrame], default: `None`)
+                source containing test data.
+            :param training_set_metadata: (Union[str, dict], default: `None`)
+                metadata JSON file or loaded metadata. Intermediate preprocessed
+            structure containing the mappings of the input
+                dataset created the first time an input file is used in the same
+                directory with the same name and a '.meta.json' extension.
+            :param data_format: (str, default: `None`) format to interpret data
+                sources. Will be inferred automatically if not specified.  Valid
+                formats are `'auto'`, `'csv'`, `'df'`, `'dict'`, `'excel'`,
+                `'feather'`, `'fwf'`,
+                `'hdf5'` (cache file produced during previous training),
+                `'html'` (file containing a single HTML `<table>`),
+                `'json'`, `'jsonl'`, `'parquet'`,
+                `'pickle'` (pickled Pandas DataFrame),
+                `'sas'`, `'spss'`, `'stata'`, `'tsv'`.
+            :param skip_save_processed_input: (bool, default: `False`) if input
+                dataset is provided it is preprocessed and cached by saving an HDF5
+                and JSON files to avoid running the preprocessing again. If this
+                parameter is `False`, the HDF5 and JSON file are not saved.
+            :param output_directory: (str, default: `'results'`) the directory that
+                will contain the training statistics, TensorBoard logs, the saved
+                model and the training progress files.
+            :param random_seed: (int, default: `42`) a random seed that will be
+                used anywhere there is a call to a random number generator: data
+                splitting, parameter initialization and training set shuffling
 
-        :param dataset: (Union[str, dict, pandas.DataFrame], default: `None`)
-            source containing the entire dataset to be used in the experiment.
-            If it has a split column, it will be used for splitting
-            (0 for train, 1 for validation, 2 for test),
-            otherwise the dataset will be randomly split.
-        :param training_set: (Union[str, dict, pandas.DataFrame], default: `None`)
-            source containing training data.
-        :param validation_set: (Union[str, dict, pandas.DataFrame], default: `None`)
-            source containing validation data.
-        :param test_set: (Union[str, dict, pandas.DataFrame], default: `None`)
-            source containing test data.
-        :param training_set_metadata: (Union[str, dict], default: `None`)
-            metadata JSON file or loaded metadata. Intermediate preprocessed
-        structure containing the mappings of the input
-            dataset created the first time an input file is used in the same
-            directory with the same name and a '.meta.json' extension.
-        :param data_format: (str, default: `None`) format to interpret data
-            sources. Will be inferred automatically if not specified.  Valid
-            formats are `'auto'`, `'csv'`, `'df'`, `'dict'`, `'excel'`,
-            `'feather'`, `'fwf'`,
-            `'hdf5'` (cache file produced during previous training),
-            `'html'` (file containing a single HTML `<table>`),
-            `'json'`, `'jsonl'`, `'parquet'`,
-            `'pickle'` (pickled Pandas DataFrame),
-            `'sas'`, `'spss'`, `'stata'`, `'tsv'`.
-        :param skip_save_processed_input: (bool, default: `False`) if input
-            dataset is provided it is preprocessed and cached by saving an HDF5
-            and JSON files to avoid running the preprocessing again. If this
-            parameter is `False`, the HDF5 and JSON file are not saved.
-        :param output_directory: (str, default: `'results'`) the directory that
-            will contain the training statistics, TensorBoard logs, the saved
-            model and the training progress files.
-        :param random_seed: (int, default: `42`) a random seed that will be
-               used anywhere there is a call to a random number generator: data
-               splitting, parameter initialization and training set shuffling
+        # Returns:
+            :return: (PreprocessedDataset) data structure containing
+                `(proc_training_set, proc_validation_set, proc_test_set, training_set_metadata)`.
 
-        # Return
-
-        :return: (PreprocessedDataset) data structure containing
-            `(proc_training_set, proc_validation_set, proc_test_set, training_set_metadata)`.
+        # Raises:
+            RuntimeError: An error occured while preprocessing the data. Examples include training dataset
+                being empty after preprocessing, lazy loading not being supported with RayBackend, etc.
         """
         print_boxed("PREPROCESSING")
 
@@ -1382,6 +1402,7 @@ class LudwigModel:
 
         preprocessing_params = get_preprocessing_params(self.config_obj)
 
+        proc_training_set = proc_validation_set = proc_test_set = None
         try:
             with provision_preprocessing_workers(self.backend):
                 # TODO (Connor): Refactor to use self.config_obj
@@ -1403,6 +1424,8 @@ class LudwigModel:
             (proc_training_set, proc_validation_set, proc_test_set, training_set_metadata) = preprocessed_data
 
             return PreprocessedDataset(proc_training_set, proc_validation_set, proc_test_set, training_set_metadata)
+        except Exception as e:
+            raise RuntimeError(f"Caught exception during model preprocessing: {str(e)}") from e
         finally:
             for callback in self.callbacks:
                 callback.on_preprocess_end(proc_training_set, proc_validation_set, proc_test_set, training_set_metadata)
@@ -1656,12 +1679,12 @@ class LudwigModel:
             set_disable_progressbar(False)
 
     @property
-    def config(self) -> Dict[str, Any]:
+    def config(self) -> ModelConfigDict:
         """Returns the fully-rendered config of this model including default values."""
         return self.config_obj.to_dict()
 
     @config.setter
-    def config(self, user_config: Dict[str, Any]):
+    def config(self, user_config: ModelConfigDict):
         """Updates the config of this model.
 
         WARNING: this can have unexpected results on an already trained model.

@@ -1,20 +1,22 @@
 from typing import Any, Dict, List, Optional, Union
 
-from marshmallow_dataclass import dataclass
-
+from ludwig.api_annotations import DeveloperAPI
 from ludwig.schema import utils as schema_utils
 from ludwig.schema.combiners.base import BaseCombinerConfig
-from ludwig.schema.metadata.combiner_metadata import COMBINER_METADATA
+from ludwig.schema.metadata import COMBINER_METADATA
+from ludwig.schema.utils import ludwig_dataclass
 
 
-@dataclass(order=True, repr=False)
+@DeveloperAPI
+@ludwig_dataclass
 class ProjectAggregateCombinerConfig(BaseCombinerConfig):
+    @staticmethod
+    def module_name():
+        return "ProjectAggregateCombiner"
 
-    type: str = schema_utils.StringOptions(
-        ["project_aggregate"],
-        default="project_aggregate",
-        allow_none=False,
-        description="Type of combiner.",
+    type: str = schema_utils.ProtectedString(
+        "project_aggregate",
+        description=COMBINER_METADATA["ProjectAggregateCombiner"]["type"].long_description,
     )
 
     projection_size: int = schema_utils.PositiveInteger(
@@ -43,6 +45,12 @@ class ProjectAggregateCombinerConfig(BaseCombinerConfig):
         parameter_metadata=COMBINER_METADATA["ProjectAggregateCombiner"]["activation"],
     )
 
+    num_fc_layers: int = schema_utils.NonNegativeInteger(
+        default=2,
+        description="Number of fully connected layers after aggregation.",
+        parameter_metadata=COMBINER_METADATA["ProjectAggregateCombiner"]["num_fc_layers"],
+    )
+
     output_size: int = schema_utils.PositiveInteger(
         default=128,
         description="Output size of each layer of the stack of fully connected layers.",
@@ -59,12 +67,6 @@ class ProjectAggregateCombinerConfig(BaseCombinerConfig):
     norm_params: Optional[dict] = schema_utils.Dict(
         description="Parameters of the normalization to apply to each projection and fully connected layer.",
         parameter_metadata=COMBINER_METADATA["ProjectAggregateCombiner"]["norm_params"],
-    )
-
-    num_fc_layers: int = schema_utils.NonNegativeInteger(
-        default=2,
-        description="Number of fully connected layers after aggregation.",
-        parameter_metadata=COMBINER_METADATA["ProjectAggregateCombiner"]["num_fc_layers"],
     )
 
     fc_layers: Optional[List[Dict[str, Any]]] = schema_utils.DictList(

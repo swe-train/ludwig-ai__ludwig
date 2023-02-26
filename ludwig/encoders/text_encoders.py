@@ -14,16 +14,17 @@
 # limitations under the License.
 # ==============================================================================
 import logging
-import sys
-from typing import Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Type, Union
 
 import torch
+from torch import nn
 
 from ludwig.api_annotations import DeveloperAPI
 from ludwig.constants import TEXT
 from ludwig.encoders.base import Encoder
 from ludwig.encoders.registry import register_encoder
 from ludwig.modules.reduction_modules import SequenceReducer
+from ludwig.schema.encoders.sequence_encoders import SequenceEncoderConfig
 from ludwig.schema.encoders.text_encoders import (
     ALBERTConfig,
     AutoTransformerConfig,
@@ -44,7 +45,8 @@ from ludwig.schema.encoders.text_encoders import (
     XLMRoBERTaConfig,
     XLNetConfig,
 )
-from ludwig.utils.pytorch_utils import freeze_parameters
+from ludwig.utils.hf_utils import load_pretrained_hf_model
+from ludwig.utils.torch_utils import FreezeModule
 
 logger = logging.getLogger(__name__)
 
@@ -52,27 +54,87 @@ logger = logging.getLogger(__name__)
 def _cls_pooled_error_message(encoder: str):
     # TODO(Arnav): Remove this once we have reduce_output options set for
     # each encoder type in the schema
-    logger.error(f"reduce_output cannot be cls_pooled for {encoder}")
-    sys.exit(1)
+    raise ValueError(f"reduce_output cannot be cls_pooled for {encoder}")
+
+
+class HFTextEncoder(Encoder):
+    DEFAULT_MODEL_NAME: str
+
+    def _init_config(self, transformer, schema_keys: List[str], encoder_config: SequenceEncoderConfig):
+        """Creates a config object for the encoder using the transformer model and the passed-in encoder config.
+
+        The transformer's config is only known after it is instantiated, so we must update the
+        encoder config with the values from the transformer config.
+
+        Args:
+            transformer: The transformer model.
+            schema_keys: The keys in the encoder config schema. We only want to update the encoder config
+                with the values from the transformer config that are in the schema.
+            encoder_config: The existing encoder config containing defaults and user-specified values.
+                If the values in this config differ from the transformer's config, the transformer's config
+                values will override this config's values.
+        Returns:
+            A new encoder config object with the updated values from the transformer config.
+        """
+        transformer_config = transformer.config.to_dict()
+        final_hf_config_params = {k: v for k, v in transformer_config.items() if k in schema_keys}
+        encoder_config_dict = encoder_config.to_dict()
+        encoder_config_dict.update(final_hf_config_params)
+        return self.get_schema_cls().from_dict(encoder_config_dict)
+
+    def _init_transformer_from_scratch(
+        self, hf_model_cls: Type, hf_config_cls: Type, hf_config_params: Dict[str, Any], vocab_size: int
+    ):
+        """Initializes the transformer model from scratch. This is in contrast to loading a pre-trained model.
+
+        Args:
+            hf_model_cls: The HuggingFace model class.
+            hf_config_cls: The HuggingFace config class.
+            hf_config_params: The HuggingFace config parameters exposed through the Ludwig schema.
+            vocab_size: The vocab size of the dataset. Because we are training from scratch, we can resize the
+                token embeddings table freely.
+        Returns:
+            The transformer model.
+        """
+        config = hf_config_cls(**hf_config_params)
+        transformer = hf_model_cls(config)
+        self._maybe_resize_token_embeddings(transformer, vocab_size)
+        return transformer
+
+    def _maybe_resize_token_embeddings(self, transformer, vocab_size: int):
+        """Resizes the token embeddings if the vocab size is different from the transformer's vocab size.
+
+        This should only happen if we are instantiating a model from scratch (i.e. not loading from a pretrained model
+        or checkpoint). Pretrained models update the vocab size stored in the config. This means if we are loading a
+        pretrained model from a checkpoint, the config vocab size should match the model's vocab size.
+
+        It is important that pretrained models update the vocab size stored in the config because sometimes the
+        pretrained models will have an embeddings table that is a different size than the vocab size. Examples:
+
+        CamemBERT:  https://github.com/huggingface/tokenizers/issues/900#issue-1122256698
+        T5:         https://github.com/huggingface/transformers/issues/4875#issue-635471552
+
+        Args:
+            transformer: The transformer model.
+            vocab_size: The vocab size of the dataset.
+        """
+        if vocab_size != transformer.config.vocab_size:
+            transformer.resize_token_embeddings(vocab_size)
+
+    def get_embedding_layer(self) -> nn.Module:
+        return next(self.transformer.module.children())
 
 
 @DeveloperAPI
 @register_encoder("albert", TEXT)
-class ALBERTEncoder(Encoder):
-    fixed_preprocessing_parameters = {
-        "tokenizer": "hf_tokenizer",
-        "pretrained_model_name_or_path": "feature.pretrained_model_name_or_path",
-    }
-
-    default_params = {
-        "pretrained_model_name_or_path": "albert-base-v2",
-    }
+class ALBERTEncoder(HFTextEncoder):
+    DEFAULT_MODEL_NAME = "albert-base-v2"
 
     def __init__(
         self,
         max_sequence_length,
         use_pretrained: bool = True,
-        pretrained_model_name_or_path: str = "albert-base-v2",
+        pretrained_model_name_or_path: str = DEFAULT_MODEL_NAME,
         saved_weights_in_checkpoint: bool = False,
         trainable: bool = False,
         reduce_output: str = "cls_pooled",
@@ -101,60 +163,53 @@ class ALBERTEncoder(Encoder):
         **kwargs,
     ):
         super().__init__()
-        self.config = encoder_config
 
-        try:
-            from transformers import AlbertConfig, AlbertModel
-        except ModuleNotFoundError:
-            logger.error(
-                " transformers is not installed. "
-                "In order to install all text feature dependencies run "
-                "pip install ludwig[text]"
-            )
-            sys.exit(-1)
+        from transformers import AlbertConfig, AlbertModel
+
+        hf_config_params = dict(
+            vocab_size=vocab_size,
+            embedding_size=embedding_size,
+            hidden_size=hidden_size,
+            num_hidden_layers=num_hidden_layers,
+            num_hidden_groups=num_hidden_groups,
+            num_attention_heads=num_attention_heads,
+            intermediate_size=intermediate_size,
+            inner_group_num=inner_group_num,
+            hidden_act=hidden_act,
+            hidden_dropout_prob=hidden_dropout_prob,
+            attention_probs_dropout_prob=attention_probs_dropout_prob,
+            max_position_embeddings=max_position_embeddings,
+            type_vocab_size=type_vocab_size,
+            initializer_range=initializer_range,
+            layer_norm_eps=layer_norm_eps,
+            classifier_dropout_prob=classifier_dropout_prob,
+            position_embedding_type=position_embedding_type,
+            pad_token_id=pad_token_id,
+            bos_token_id=bos_token_id,
+            eos_token_id=eos_token_id,
+        )
 
         if use_pretrained and not saved_weights_in_checkpoint:
             pretrained_kwargs = pretrained_kwargs or {}
-            self.transformer = AlbertModel.from_pretrained(pretrained_model_name_or_path, **pretrained_kwargs)
+            transformer = load_pretrained_hf_model(AlbertModel, pretrained_model_name_or_path, **pretrained_kwargs)
         else:
-            config = AlbertConfig(
-                vocab_size=vocab_size,
-                embedding_size=embedding_size,
-                hidden_size=hidden_size,
-                num_hidden_layers=num_hidden_layers,
-                num_hidden_groups=num_hidden_groups,
-                num_attention_heads=num_attention_heads,
-                intermediate_size=intermediate_size,
-                inner_group_num=inner_group_num,
-                hidden_act=hidden_act,
-                hidden_dropout_prob=hidden_dropout_prob,
-                attention_probs_dropout_prob=attention_probs_dropout_prob,
-                max_position_embeddings=max_position_embeddings,
-                type_vocab_size=type_vocab_size,
-                initializer_range=initializer_range,
-                layer_norm_eps=layer_norm_eps,
-                classifier_dropout_prob=classifier_dropout_prob,
-                position_embedding_type=position_embedding_type,
-                pad_token_id=pad_token_id,
-                bos_token_id=bos_token_id,
-                eos_token_id=eos_token_id,
-            )
-            self.transformer = AlbertModel(config)
+            transformer = self._init_transformer_from_scratch(AlbertModel, AlbertConfig, hf_config_params, vocab_size)
+
+        if encoder_config is not None:
+            self.config = self._init_config(transformer, hf_config_params.keys(), encoder_config)
+        else:
+            self.config = None
 
         self.reduce_output = reduce_output
         if not self.reduce_output == "cls_pooled":
             self.reduce_sequence = SequenceReducer(reduce_mode=reduce_output)
-        if trainable:
-            self.transformer.train()
-        else:
-            freeze_parameters(self.transformer)
-        self.transformer.resize_token_embeddings(vocab_size)
+        self.transformer = FreezeModule(transformer, frozen=not trainable)
         self.max_sequence_length = max_sequence_length
 
     def forward(self, inputs: torch.Tensor, mask: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
         if mask is not None:
             mask = mask.to(torch.int32)
-        transformer_outputs = self.transformer(
+        transformer_outputs = self.transformer.module(
             input_ids=inputs,
             attention_mask=mask,
             token_type_ids=torch.zeros_like(inputs),
@@ -182,10 +237,10 @@ class ALBERTEncoder(Encoder):
             return torch.Size(
                 [
                     self.max_sequence_length - 2,
-                    self.transformer.config.hidden_size,
+                    self.transformer.module.config.hidden_size,
                 ]
             )
-        return torch.Size([self.transformer.config.hidden_size])
+        return torch.Size([self.transformer.module.config.hidden_size])
 
     @property
     def input_dtype(self):
@@ -194,21 +249,14 @@ class ALBERTEncoder(Encoder):
 
 @DeveloperAPI
 @register_encoder("mt5", TEXT)
-class MT5Encoder(Encoder):
-    fixed_preprocessing_parameters = {
-        "tokenizer": "hf_tokenizer",
-        "pretrained_model_name_or_path": "feature.pretrained_model_name_or_path",
-    }
-
-    default_params = {
-        "pretrained_model_name_or_path": "google/mt5-base",
-    }
+class MT5Encoder(HFTextEncoder):
+    DEFAULT_MODEL_NAME = "google/mt5-base"
 
     def __init__(
         self,
         max_sequence_length: int,
         use_pretrained: bool = True,
-        pretrained_model_name_or_path: str = "google/mt5-base",
+        pretrained_model_name_or_path: str = DEFAULT_MODEL_NAME,
         saved_weights_in_checkpoint: bool = False,
         trainable: bool = False,
         reduce_output: str = "sum",
@@ -236,60 +284,53 @@ class MT5Encoder(Encoder):
         **kwargs,
     ):
         super().__init__()
-        self.config = encoder_config
 
-        try:
-            from transformers import MT5Config, MT5EncoderModel
-        except ModuleNotFoundError:
-            logger.error(
-                " transformers is not installed. "
-                "In order to install all text feature dependencies run "
-                "pip install ludwig[text]"
-            )
-            sys.exit(-1)
+        from transformers import MT5Config, MT5EncoderModel
+
+        hf_config_params = dict(
+            vocab_size=vocab_size,
+            d_model=d_model,
+            d_kv=d_kv,
+            d_ff=d_ff,
+            num_layers=num_layers,
+            num_decoder_layers=num_decoder_layers,
+            num_heads=num_heads,
+            relative_attention_num_buckets=relative_attention_num_buckets,
+            dropout_rate=dropout_rate,
+            layer_norm_epsilon=layer_norm_epsilon,
+            initializer_factor=initializer_factor,
+            feed_forward_proj=feed_forward_proj,
+            is_encoder_decoder=is_encoder_decoder,
+            use_cache=use_cache,
+            tokenizer_class=tokenizer_class,
+            tie_word_embeddings=tie_word_embeddings,
+            pad_token_id=pad_token_id,
+            eos_token_id=eos_token_id,
+            decoder_start_token_id=decoder_start_token_id,
+        )
 
         if use_pretrained and not saved_weights_in_checkpoint:
             pretrained_kwargs = pretrained_kwargs or {}
-            self.transformer = MT5EncoderModel.from_pretrained(pretrained_model_name_or_path, **pretrained_kwargs)
+            transformer = load_pretrained_hf_model(MT5EncoderModel, pretrained_model_name_or_path, **pretrained_kwargs)
         else:
-            config = MT5Config(
-                vocab_size=vocab_size,
-                d_model=d_model,
-                d_kv=d_kv,
-                d_ff=d_ff,
-                num_layers=num_layers,
-                num_decoder_layers=num_decoder_layers,
-                num_heads=num_heads,
-                relative_attention_num_buckets=relative_attention_num_buckets,
-                dropout_rate=dropout_rate,
-                layer_norm_epsilon=layer_norm_epsilon,
-                initializer_factor=initializer_factor,
-                feed_forward_proj=feed_forward_proj,
-                is_encoder_decoder=is_encoder_decoder,
-                use_cache=use_cache,
-                tokenizer_class=tokenizer_class,
-                tie_word_embeddings=tie_word_embeddings,
-                pad_token_id=pad_token_id,
-                eos_token_id=eos_token_id,
-                decoder_start_token_id=decoder_start_token_id,
-            )
-            self.transformer = MT5EncoderModel(config)
+            transformer = self._init_transformer_from_scratch(MT5EncoderModel, MT5Config, hf_config_params, vocab_size)
+
+        if encoder_config is not None:
+            self.config = self._init_config(transformer, hf_config_params.keys(), encoder_config)
+        else:
+            self.config = None
 
         self.reduce_output = reduce_output
         if reduce_output == "cls_pooled":
             _cls_pooled_error_message(self.__class__.__name__)
         self.reduce_sequence = SequenceReducer(reduce_mode=reduce_output)
-        if trainable:
-            self.transformer.train()
-        else:
-            freeze_parameters(self.transformer)
-        self.transformer.resize_token_embeddings(vocab_size)
+        self.transformer = FreezeModule(transformer, frozen=not trainable)
         self.max_sequence_length = max_sequence_length
 
     def forward(self, inputs: torch.Tensor, mask: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
         if mask is not None:
             mask = mask.to(torch.int32)
-        transformer_outputs = self.transformer(
+        transformer_outputs = self.transformer.module(
             input_ids=inputs,
             attention_mask=mask,
         )
@@ -312,10 +353,10 @@ class MT5Encoder(Encoder):
             return torch.Size(
                 [
                     self.max_sequence_length - 2,
-                    self.transformer.config.hidden_size,
+                    self.transformer.module.config.hidden_size,
                 ]
             )
-        return torch.Size([self.transformer.config.hidden_size])
+        return torch.Size([self.transformer.module.config.hidden_size])
 
     @property
     def input_dtype(self):
@@ -324,21 +365,14 @@ class MT5Encoder(Encoder):
 
 @DeveloperAPI
 @register_encoder("xlmroberta", TEXT)
-class XLMRoBERTaEncoder(Encoder):
-    fixed_preprocessing_parameters = {
-        "tokenizer": "hf_tokenizer",
-        "pretrained_model_name_or_path": "feature.pretrained_model_name_or_path",
-    }
-
-    default_params = {
-        "pretrained_model_name_or_path": "xlm-roberta-base",
-    }
+class XLMRoBERTaEncoder(HFTextEncoder):
+    DEFAULT_MODEL_NAME = "xlm-roberta-base"
 
     def __init__(
         self,
         max_sequence_length: int,
         use_pretrained: bool = True,
-        pretrained_model_name_or_path: str = "xlm-roberta-base",
+        pretrained_model_name_or_path: str = DEFAULT_MODEL_NAME,
         saved_weights_in_checkpoint: bool = False,
         reduce_output: str = "cls_pooled",
         trainable: bool = False,
@@ -346,50 +380,48 @@ class XLMRoBERTaEncoder(Encoder):
         pad_token_id: int = 1,
         bos_token_id: int = 0,
         eos_token_id: int = 2,
+        max_position_embeddings: int = 514,
+        type_vocab_size: int = 1,
         add_pooling_layer: bool = True,
         pretrained_kwargs: Dict = None,
         encoder_config=None,
         **kwargs,
     ):
         super().__init__()
-        self.config = encoder_config
 
-        try:
-            from transformers import XLMRobertaConfig, XLMRobertaModel
-        except ModuleNotFoundError:
-            logger.error(
-                " transformers is not installed. "
-                "In order to install all text feature dependencies run "
-                "pip install ludwig[text]"
-            )
-            sys.exit(-1)
+        from transformers import XLMRobertaConfig, XLMRobertaModel
+
+        hf_config_params = dict(
+            pad_token_id=pad_token_id,
+            bos_token_id=bos_token_id,
+            eos_token_id=eos_token_id,
+            max_position_embeddings=max_position_embeddings,
+            type_vocab_size=type_vocab_size,
+        )
 
         if use_pretrained and not saved_weights_in_checkpoint:
             pretrained_kwargs = pretrained_kwargs or {}
-            self.transformer = XLMRobertaModel.from_pretrained(pretrained_model_name_or_path, **pretrained_kwargs)
+            transformer = load_pretrained_hf_model(XLMRobertaModel, pretrained_model_name_or_path, **pretrained_kwargs)
         else:
-            config = XLMRobertaConfig(
-                pad_token_id=pad_token_id,
-                bos_token_id=bos_token_id,
-                eos_token_id=eos_token_id,
+            transformer = self._init_transformer_from_scratch(
+                XLMRobertaModel, XLMRobertaConfig, hf_config_params, vocab_size
             )
 
-            self.transformer = XLMRobertaModel(config, add_pooling_layer)
+        if encoder_config is not None:
+            self.config = self._init_config(transformer, hf_config_params.keys(), encoder_config)
+        else:
+            self.config = None
 
         self.reduce_output = reduce_output
         if not self.reduce_output == "cls_pooled":
             self.reduce_sequence = SequenceReducer(reduce_mode=reduce_output)
-        if trainable:
-            self.transformer.train()
-        else:
-            freeze_parameters(self.transformer)
-        self.transformer.resize_token_embeddings(vocab_size)
+        self.transformer = FreezeModule(transformer, frozen=not trainable)
         self.max_sequence_length = max_sequence_length
 
     def forward(self, inputs: torch.Tensor, mask: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
         if mask is not None:
             mask = mask.to(torch.int32)
-        transformer_outputs = self.transformer(
+        transformer_outputs = self.transformer.module(
             input_ids=inputs,
             attention_mask=mask,
             token_type_ids=torch.zeros_like(inputs),
@@ -417,10 +449,10 @@ class XLMRoBERTaEncoder(Encoder):
             return torch.Size(
                 [
                     self.max_sequence_length - 2,
-                    self.transformer.config.hidden_size,
+                    self.transformer.module.config.hidden_size,
                 ]
             )
-        return torch.Size([self.transformer.config.hidden_size])
+        return torch.Size([self.transformer.module.config.hidden_size])
 
     @property
     def input_dtype(self):
@@ -429,22 +461,14 @@ class XLMRoBERTaEncoder(Encoder):
 
 @DeveloperAPI
 @register_encoder("bert", TEXT)
-class BERTEncoder(Encoder):
-    # TODO(justin): Use official class properties.
-    fixed_preprocessing_parameters = {
-        "tokenizer": "hf_tokenizer",
-        "pretrained_model_name_or_path": "feature.pretrained_model_name_or_path",
-    }
-
-    default_params = {
-        "pretrained_model_name_or_path": "bert-base-uncased",
-    }
+class BERTEncoder(HFTextEncoder):
+    DEFAULT_MODEL_NAME = "bert-base-uncased"
 
     def __init__(
         self,
         max_sequence_length: int,
         use_pretrained: bool = True,
-        pretrained_model_name_or_path: str = "bert-base-uncased",
+        pretrained_model_name_or_path: str = DEFAULT_MODEL_NAME,
         saved_weights_in_checkpoint: bool = False,
         trainable: bool = False,
         reduce_output: str = "cls_pooled",
@@ -469,58 +493,51 @@ class BERTEncoder(Encoder):
         **kwargs,
     ):
         super().__init__()
-        self.config = encoder_config
 
-        try:
-            from transformers import BertConfig, BertModel
-        except ModuleNotFoundError:
-            logger.error(
-                " transformers is not installed. "
-                "In order to install all text feature dependencies run "
-                "pip install ludwig[text]"
-            )
-            sys.exit(-1)
+        from transformers import BertConfig, BertModel
+
+        hf_config_params = dict(
+            vocab_size=vocab_size,
+            hidden_size=hidden_size,
+            num_hidden_layers=num_hidden_layers,
+            num_attention_heads=num_attention_heads,
+            intermediate_size=intermediate_size,
+            hidden_act=hidden_act,
+            hidden_dropout_prob=hidden_dropout_prob,
+            attention_probs_dropout_prob=attention_probs_dropout_prob,
+            max_position_embeddings=max_position_embeddings,
+            type_vocab_size=type_vocab_size,
+            initializer_range=initializer_range,
+            layer_norm_eps=layer_norm_eps,
+            pad_token_id=pad_token_id,
+            gradient_checkpointing=gradient_checkpointing,
+            position_embedding_type=position_embedding_type,
+            classifier_dropout=classifier_dropout,
+        )
 
         if use_pretrained and not saved_weights_in_checkpoint:
             pretrained_kwargs = pretrained_kwargs or {}
-            self.transformer = BertModel.from_pretrained(pretrained_model_name_or_path, **pretrained_kwargs)
+            transformer = load_pretrained_hf_model(BertModel, pretrained_model_name_or_path, **pretrained_kwargs)
         else:
-            config = BertConfig(
-                vocab_size=vocab_size,
-                hidden_size=hidden_size,
-                num_hidden_layers=num_hidden_layers,
-                num_attention_heads=num_attention_heads,
-                intermediate_size=intermediate_size,
-                hidden_act=hidden_act,
-                hidden_dropout_prob=hidden_dropout_prob,
-                attention_probs_dropout_prob=attention_probs_dropout_prob,
-                max_position_embeddings=max_position_embeddings,
-                type_vocab_size=type_vocab_size,
-                initializer_range=initializer_range,
-                layer_norm_eps=layer_norm_eps,
-                pad_token_id=pad_token_id,
-                gradient_checkpointing=gradient_checkpointing,
-                position_embedding_type=position_embedding_type,
-                classifier_dropout=classifier_dropout,
-            )
-            self.transformer = BertModel(config)
+            transformer = self._init_transformer_from_scratch(BertModel, BertConfig, hf_config_params, vocab_size)
+
+        if encoder_config is not None:
+            self.config = self._init_config(transformer, hf_config_params.keys(), encoder_config)
+        else:
+            self.config = None
 
         self.reduce_output = reduce_output
         if not self.reduce_output == "cls_pooled":
             self.reduce_sequence = SequenceReducer(reduce_mode=reduce_output)
 
-        if trainable:
-            self.transformer.train()
-        else:
-            freeze_parameters(self.transformer)
+        self.transformer = FreezeModule(transformer, frozen=not trainable)
 
-        self.transformer.resize_token_embeddings(vocab_size)
         self.max_sequence_length = max_sequence_length
 
     def forward(self, inputs: torch.Tensor, mask: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
         if mask is not None:
             mask = mask.to(torch.int32)
-        transformer_outputs = self.transformer(
+        transformer_outputs = self.transformer.module(
             input_ids=inputs,
             attention_mask=mask,
             token_type_ids=torch.zeros_like(inputs),
@@ -549,10 +566,10 @@ class BERTEncoder(Encoder):
             return torch.Size(
                 [
                     self.max_sequence_length - 2,
-                    self.transformer.config.hidden_size,
+                    self.transformer.module.config.hidden_size,
                 ]
             )
-        return torch.Size([self.transformer.config.hidden_size])
+        return torch.Size([self.transformer.module.config.hidden_size])
 
     @property
     def input_dtype(self):
@@ -561,21 +578,14 @@ class BERTEncoder(Encoder):
 
 @DeveloperAPI
 @register_encoder("xlm", TEXT)
-class XLMEncoder(Encoder):
-    fixed_preprocessing_parameters = {
-        "tokenizer": "hf_tokenizer",
-        "pretrained_model_name_or_path": "feature.pretrained_model_name_or_path",
-    }
-
-    default_params = {
-        "pretrained_model_name_or_path": "xlm-mlm-en-2048",
-    }
+class XLMEncoder(HFTextEncoder):
+    DEFAULT_MODEL_NAME = "xlm-mlm-en-2048"
 
     def __init__(
         self,
         max_sequence_length: int,
         use_pretrained: bool = True,
-        pretrained_model_name_or_path: str = "xlm-mlm-en-2048",
+        pretrained_model_name_or_path: str = DEFAULT_MODEL_NAME,
         saved_weights_in_checkpoint: bool = False,
         trainable: bool = False,
         reduce_output: str = "sum",
@@ -612,67 +622,59 @@ class XLMEncoder(Encoder):
         **kwargs,
     ):
         super().__init__()
-        self.config = encoder_config
 
-        try:
-            from transformers import XLMConfig, XLMModel
-        except ModuleNotFoundError:
-            logger.error(
-                " transformers is not installed. "
-                "In order to install all text feature dependencies run "
-                "pip install ludwig[text]"
-            )
-            sys.exit(-1)
+        from transformers import XLMConfig, XLMModel
+
+        hf_config_params = dict(
+            vocab_size=vocab_size,
+            emb_dim=emb_dim,
+            n_layers=n_layers,
+            n_heads=n_heads,
+            dropout=dropout,
+            attention_dropout=attention_dropout,
+            gelu_activation=gelu_activation,
+            sinusoidal_embeddings=sinusoidal_embeddings,
+            causal=causal,
+            asm=asm,
+            n_langs=n_langs,
+            use_lang_emb=use_lang_emb,
+            max_position_embeddings=max_position_embeddings,
+            embed_init_std=embed_init_std,
+            layer_norm_eps=layer_norm_eps,
+            init_std=init_std,
+            bos_index=bos_index,
+            eos_index=eos_index,
+            pad_index=pad_index,
+            unk_index=unk_index,
+            mask_index=mask_index,
+            is_encoder=is_encoder,
+            start_n_top=start_n_top,
+            end_n_top=end_n_top,
+            mask_token_id=mask_token_id,
+            lang_id=lang_id,
+            pad_token_id=pad_token_id,
+            bos_token_id=bos_token_id,
+        )
 
         if use_pretrained and not saved_weights_in_checkpoint:
             pretrained_kwargs = pretrained_kwargs or {}
-            self.transformer = XLMModel.from_pretrained(pretrained_model_name_or_path, **pretrained_kwargs)
-            if trainable:
-                self.transformer.train()
+            transformer = load_pretrained_hf_model(XLMModel, pretrained_model_name_or_path, **pretrained_kwargs)
         else:
-            config = XLMConfig(
-                vocab_size=vocab_size,
-                emb_dim=emb_dim,
-                n_layers=n_layers,
-                n_heads=n_heads,
-                dropout=dropout,
-                attention_dropout=attention_dropout,
-                gelu_activation=gelu_activation,
-                sinusoidal_embeddings=sinusoidal_embeddings,
-                causal=causal,
-                asm=asm,
-                n_langs=n_langs,
-                use_lang_emb=use_lang_emb,
-                max_position_embeddings=max_position_embeddings,
-                embed_init_std=embed_init_std,
-                layer_norm_eps=layer_norm_eps,
-                init_std=init_std,
-                bos_index=bos_index,
-                eos_index=eos_index,
-                pad_index=pad_index,
-                unk_index=unk_index,
-                mask_index=mask_index,
-                is_encoder=is_encoder,
-                start_n_top=start_n_top,
-                end_n_top=end_n_top,
-                mask_token_id=mask_token_id,
-                lang_id=lang_id,
-                pad_token_id=pad_token_id,
-                bos_token_id=bos_token_id,
-            )
-            self.transformer = XLMModel(config)
+            transformer = self._init_transformer_from_scratch(XLMModel, XLMConfig, hf_config_params, vocab_size)
 
+        self.config = self._init_config(transformer, hf_config_params, encoder_config)
+
+        self.transformer = FreezeModule(transformer, frozen=not trainable)
         self.reduce_output = reduce_output
         if self.reduce_output == "cls_pooled":
             _cls_pooled_error_message(self.__class__.__name__)
         self.reduce_sequence = SequenceReducer(reduce_mode=reduce_output)
-        self.transformer.resize_token_embeddings(vocab_size)
         self.max_sequence_length = max_sequence_length
 
     def forward(self, inputs: torch.Tensor, mask: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
         if mask is not None:
             mask = mask.to(torch.int32)
-        transformer_outputs = self.transformer(
+        transformer_outputs = self.transformer.module(
             input_ids=inputs,
             attention_mask=mask,
             token_type_ids=torch.zeros_like(inputs),
@@ -697,10 +699,10 @@ class XLMEncoder(Encoder):
             return torch.Size(
                 [
                     self.max_sequence_length - 2,
-                    self.transformer.config.hidden_size,
+                    self.transformer.module.config.hidden_size,
                 ]
             )
-        return torch.Size([self.transformer.config.hidden_size])
+        return torch.Size([self.transformer.module.config.hidden_size])
 
     @property
     def input_dtype(self):
@@ -709,22 +711,15 @@ class XLMEncoder(Encoder):
 
 @DeveloperAPI
 @register_encoder("gpt", TEXT)
-class GPTEncoder(Encoder):
-    fixed_preprocessing_parameters = {
-        "tokenizer": "hf_tokenizer",
-        "pretrained_model_name_or_path": "feature.pretrained_model_name_or_path",
-    }
-
-    default_params = {
-        "pretrained_model_name_or_path": "openai-gpt",
-    }
+class GPTEncoder(HFTextEncoder):
+    DEFAULT_MODEL_NAME = "openai-gpt"
 
     def __init__(
         self,
         max_sequence_length: int,
         reduce_output: str = "sum",
         use_pretrained: bool = True,
-        pretrained_model_name_or_path: str = "openai-gpt",
+        pretrained_model_name_or_path: str = DEFAULT_MODEL_NAME,
         saved_weights_in_checkpoint: bool = False,
         trainable: bool = False,
         vocab_size: int = 30522,
@@ -744,53 +739,48 @@ class GPTEncoder(Encoder):
         **kwargs,
     ):
         super().__init__()
-        self.config = encoder_config
 
-        try:
-            from transformers import OpenAIGPTConfig, OpenAIGPTModel
-        except ModuleNotFoundError:
-            logger.error(
-                " transformers is not installed. "
-                "In order to install all text feature dependencies run "
-                "pip install ludwig[text]"
-            )
-            sys.exit(-1)
+        from transformers import OpenAIGPTConfig, OpenAIGPTModel
+
+        hf_config_params = dict(
+            vocab_size=vocab_size,
+            n_positions=n_positions,
+            n_ctx=n_ctx,
+            n_embd=n_embd,
+            n_layer=n_layer,
+            n_head=n_head,
+            afn=afn,
+            resid_pdrop=resid_pdrop,
+            embd_pdrop=embd_pdrop,
+            attn_pdrop=attn_pdrop,
+            layer_norm_epsilon=layer_norm_epsilon,
+            initializer_range=initializer_range,
+        )
 
         if use_pretrained and not saved_weights_in_checkpoint:
             pretrained_kwargs = pretrained_kwargs or {}
-            self.transformer = OpenAIGPTModel.from_pretrained(pretrained_model_name_or_path, **pretrained_kwargs)
+            transformer = load_pretrained_hf_model(OpenAIGPTModel, pretrained_model_name_or_path, **pretrained_kwargs)
         else:
-            config = OpenAIGPTConfig(
-                vocab_size=vocab_size,
-                n_positions=n_positions,
-                n_ctx=n_ctx,
-                n_embd=n_embd,
-                n_layer=n_layer,
-                n_head=n_head,
-                afn=afn,
-                resid_pdrop=resid_pdrop,
-                embd_pdrop=embd_pdrop,
-                attn_pdrop=attn_pdrop,
-                layer_norm_epsilon=layer_norm_epsilon,
-                initializer_range=initializer_range,
+            transformer = self._init_transformer_from_scratch(
+                OpenAIGPTModel, OpenAIGPTConfig, hf_config_params, vocab_size
             )
-            self.transformer = OpenAIGPTModel(config)
+
+        if encoder_config is not None:
+            self.config = self._init_config(transformer, hf_config_params.keys(), encoder_config)
+        else:
+            self.config = None
 
         self.reduce_output = reduce_output
         if self.reduce_output == "cls_pooled":
             _cls_pooled_error_message(self.__class__.__name__)
         self.reduce_sequence = SequenceReducer(reduce_mode=reduce_output)
-        if trainable:
-            self.transformer.train()
-        else:
-            freeze_parameters(self.transformer)
-        self.transformer.resize_token_embeddings(vocab_size)
+        self.transformer = FreezeModule(transformer, frozen=not trainable)
         self.max_sequence_length = max_sequence_length
 
     def forward(self, inputs: torch.Tensor, mask: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
         if mask is not None:
             mask = mask.to(torch.int32)
-        transformer_outputs = self.transformer(
+        transformer_outputs = self.transformer.module(
             input_ids=inputs,
             attention_mask=mask,
             token_type_ids=torch.zeros_like(inputs),
@@ -810,8 +800,8 @@ class GPTEncoder(Encoder):
     @property
     def output_shape(self) -> torch.Size:
         if self.reduce_output is None:
-            return torch.Size([self.max_sequence_length, self.transformer.config.hidden_size])
-        return torch.Size([self.transformer.config.hidden_size])
+            return torch.Size([self.max_sequence_length, self.transformer.module.config.hidden_size])
+        return torch.Size([self.transformer.module.config.hidden_size])
 
     @property
     def input_dtype(self):
@@ -820,21 +810,14 @@ class GPTEncoder(Encoder):
 
 @DeveloperAPI
 @register_encoder("gpt2", TEXT)
-class GPT2Encoder(Encoder):
-    fixed_preprocessing_parameters = {
-        "tokenizer": "hf_tokenizer",
-        "pretrained_model_name_or_path": "feature.pretrained_model_name_or_path",
-    }
-
-    default_params = {
-        "pretrained_model_name_or_path": "gpt2",
-    }
+class GPT2Encoder(HFTextEncoder):
+    DEFAULT_MODEL_NAME = "gpt2"
 
     def __init__(
         self,
         max_sequence_length: int,
         use_pretrained: bool = True,
-        pretrained_model_name_or_path: str = "gpt2",
+        pretrained_model_name_or_path: str = DEFAULT_MODEL_NAME,
         reduce_output: str = "sum",
         trainable: bool = False,
         vocab_size: int = 50257,
@@ -856,55 +839,48 @@ class GPT2Encoder(Encoder):
         **kwargs,
     ):
         super().__init__()
-        self.config = encoder_config
 
-        try:
-            from transformers import GPT2Config, GPT2Model
-        except ModuleNotFoundError:
-            logger.error(
-                " transformers is not installed. "
-                "In order to install all text feature dependencies run "
-                "pip install ludwig[text]"
-            )
-            sys.exit(-1)
+        from transformers import GPT2Config, GPT2Model
+
+        hf_config_params = dict(
+            vocab_size=vocab_size,
+            n_positions=n_positions,
+            n_ctx=n_ctx,
+            n_embd=n_embd,
+            n_layer=n_layer,
+            n_head=n_head,
+            n_inner=n_inner,
+            activation_function=activation_function,
+            resid_pdrop=resid_pdrop,
+            embd_pdrop=embd_pdrop,
+            attn_pdrop=attn_pdrop,
+            layer_norm_epsilon=layer_norm_epsilon,
+            initializer_range=initializer_range,
+            scale_attn_weights=scale_attn_weights,
+        )
 
         if use_pretrained:
             pretrained_kwargs = pretrained_kwargs or {}
-            self.transformer = GPT2Model.from_pretrained(pretrained_model_name_or_path, **pretrained_kwargs)
+            transformer = load_pretrained_hf_model(GPT2Model, pretrained_model_name_or_path, **pretrained_kwargs)
         else:
-            config = GPT2Config(
-                vocab_size=vocab_size,
-                n_positions=n_positions,
-                n_ctx=n_ctx,
-                n_embd=n_embd,
-                n_layer=n_layer,
-                n_head=n_head,
-                n_inner=n_inner,
-                activation_function=activation_function,
-                resid_pdrop=resid_pdrop,
-                embd_pdrop=embd_pdrop,
-                attn_pdrop=attn_pdrop,
-                layer_norm_epsilon=layer_norm_epsilon,
-                initializer_range=initializer_range,
-                scale_attn_weights=scale_attn_weights,
-            )
-            self.transformer = GPT2Model(config)
+            transformer = self._init_transformer_from_scratch(GPT2Model, GPT2Config, hf_config_params, vocab_size)
 
-        if trainable:
-            self.transformer.train()
+        if encoder_config is not None:
+            self.config = self._init_config(transformer, hf_config_params.keys(), encoder_config)
         else:
-            freeze_parameters(self.transformer)
+            self.config = None
+
+        self.transformer = FreezeModule(transformer, frozen=not trainable)
         self.max_sequence_length = max_sequence_length
         self.reduce_output = reduce_output
         if self.reduce_output == "cls_pooled":
             _cls_pooled_error_message(self.__class__.__name__)
         self.reduce_sequence = SequenceReducer(reduce_mode=reduce_output)
-        self.transformer.resize_token_embeddings(vocab_size)
 
     def forward(self, inputs: torch.Tensor, mask: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
         if mask is not None:
             mask = mask.to(torch.int32)
-        transformer_outputs = self.transformer(
+        transformer_outputs = self.transformer.module(
             input_ids=inputs,
             attention_mask=mask,
             token_type_ids=torch.zeros_like(inputs),
@@ -924,8 +900,8 @@ class GPT2Encoder(Encoder):
     @property
     def output_shape(self) -> torch.Size:
         if self.reduce_output is None:
-            return torch.Size([self.max_sequence_length, self.transformer.config.hidden_size])
-        return torch.Size([self.transformer.config.hidden_size])
+            return torch.Size([self.max_sequence_length, self.transformer.module.config.hidden_size])
+        return torch.Size([self.transformer.module.config.hidden_size])
 
     @property
     def input_dtype(self):
@@ -934,21 +910,14 @@ class GPT2Encoder(Encoder):
 
 @DeveloperAPI
 @register_encoder("roberta", TEXT)
-class RoBERTaEncoder(Encoder):
-    fixed_preprocessing_parameters = {
-        "tokenizer": "hf_tokenizer",
-        "pretrained_model_name_or_path": "feature.pretrained_model_name_or_path",
-    }
-
-    default_params = {
-        "pretrained_model_name_or_path": "roberta-base",
-    }
+class RoBERTaEncoder(HFTextEncoder):
+    DEFAULT_MODEL_NAME = "roberta-base"
 
     def __init__(
         self,
         max_sequence_length,
         use_pretrained: bool = True,
-        pretrained_model_name_or_path: str = "roberta-base",
+        pretrained_model_name_or_path: str = DEFAULT_MODEL_NAME,
         saved_weights_in_checkpoint: bool = False,
         reduce_output: str = "cls_pooled",
         trainable: bool = False,
@@ -956,46 +925,45 @@ class RoBERTaEncoder(Encoder):
         pad_token_id: int = 1,
         bos_token_id: int = 0,
         eos_token_id: int = 2,
+        max_position_embeddings: int = 514,
+        type_vocab_size: int = 1,
         pretrained_kwargs: Dict = None,
         encoder_config=None,
         **kwargs,
     ):
         super().__init__()
-        self.config = encoder_config
 
-        try:
-            from transformers import RobertaConfig, RobertaModel
-        except ModuleNotFoundError:
-            logger.error(
-                " transformers is not installed. "
-                "In order to install all text feature dependencies run "
-                "pip install ludwig[text]"
-            )
-            sys.exit(-1)
+        from transformers import RobertaConfig, RobertaModel
+
+        hf_config_params = dict(
+            pad_token_id=pad_token_id,
+            bos_token_id=bos_token_id,
+            eos_token_id=eos_token_id,
+            max_position_embeddings=max_position_embeddings,
+            type_vocab_size=type_vocab_size,
+        )
 
         if use_pretrained and not saved_weights_in_checkpoint:
             pretrained_kwargs = pretrained_kwargs or {}
-            self.transformer = RobertaModel.from_pretrained(pretrained_model_name_or_path, **pretrained_kwargs)
+            transformer = load_pretrained_hf_model(RobertaModel, pretrained_model_name_or_path, **pretrained_kwargs)
         else:
-            config = RobertaConfig(
-                pad_token_id=pad_token_id,
-                bos_token_id=bos_token_id,
-                eos_token_id=eos_token_id,
-            )
-            self.transformer = RobertaModel(config)
-        if trainable:
-            self.transformer.train()
+            transformer = self._init_transformer_from_scratch(RobertaModel, RobertaConfig, hf_config_params, vocab_size)
+
+        if encoder_config is not None:
+            self.config = self._init_config(transformer, hf_config_params.keys(), encoder_config)
         else:
-            freeze_parameters(self.transformer)
+            self.config = None
+
+        self.transformer = FreezeModule(transformer, frozen=not trainable)
+        self.max_sequence_length = max_sequence_length
         self.reduce_output = reduce_output
         if not self.reduce_output == "cls_pooled":
             self.reduce_sequence = SequenceReducer(reduce_mode=reduce_output)
-        self.transformer.resize_token_embeddings(vocab_size)
 
     def forward(self, inputs: torch.Tensor, mask: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
         if mask is not None:
             mask = mask.to(torch.int32)
-        transformer_outputs = self.transformer(
+        transformer_outputs = self.transformer.module(
             input_ids=inputs,
             attention_mask=mask,
             token_type_ids=torch.zeros_like(inputs),
@@ -1018,8 +986,8 @@ class RoBERTaEncoder(Encoder):
     @property
     def output_shape(self) -> torch.Size:
         if self.reduce_output is None:
-            return torch.Size([self.max_sequence_length, self.transformer.config.hidden_size])
-        return torch.Size([self.transformer.config.hidden_size])
+            return torch.Size([self.max_sequence_length - 2, self.transformer.module.config.hidden_size])
+        return torch.Size([self.transformer.module.config.hidden_size])
 
     @property
     def input_dtype(self):
@@ -1028,21 +996,14 @@ class RoBERTaEncoder(Encoder):
 
 @DeveloperAPI
 @register_encoder("transformer_xl", TEXT)
-class TransformerXLEncoder(Encoder):
-    fixed_preprocessing_parameters = {
-        "tokenizer": "hf_tokenizer",
-        "pretrained_model_name_or_path": "feature.pretrained_model_name_or_path",
-    }
-
-    default_params = {
-        "pretrained_model_name_or_path": "transfo-xl-wt103",
-    }
+class TransformerXLEncoder(HFTextEncoder):
+    DEFAULT_MODEL_NAME = "transfo-xl-wt103"
 
     def __init__(
         self,
         max_sequence_length: int,
         use_pretrained: bool = True,
-        pretrained_model_name_or_path: str = "transfo-xl-wt103",
+        pretrained_model_name_or_path: str = DEFAULT_MODEL_NAME,
         saved_weights_in_checkpoint: bool = False,
         reduce_output: str = "sum",
         trainable: bool = False,
@@ -1077,63 +1038,59 @@ class TransformerXLEncoder(Encoder):
         **kwargs,
     ):
         super().__init__()
-        self.config = encoder_config
 
-        try:
-            from transformers import TransfoXLConfig, TransfoXLModel
-        except ModuleNotFoundError:
-            logger.error(
-                " transformers is not installed. "
-                "In order to install all text feature dependencies run "
-                "pip install ludwig[text]"
-            )
-            sys.exit(-1)
+        from transformers import TransfoXLConfig, TransfoXLModel
+
+        hf_config_params = dict(
+            vocab_size=vocab_size,
+            cutoffs=cutoffs,
+            d_model=d_model,
+            d_embed=d_embed,
+            n_head=n_head,
+            d_head=d_head,
+            d_inner=d_inner,
+            div_val=div_val,
+            pre_lnorm=pre_lnorm,
+            n_layer=n_layer,
+            mem_len=mem_len,
+            clamp_len=clamp_len,
+            same_length=same_length,
+            proj_share_all_but_first=proj_share_all_but_first,
+            attn_type=attn_type,
+            sample_softmax=sample_softmax,
+            adaptive=adaptive,
+            dropout=dropout,
+            dropatt=dropatt,
+            untie_r=untie_r,
+            init=init,
+            init_range=init_range,
+            proj_init_std=proj_init_std,
+            init_std=init_std,
+            layer_norm_epsilon=layer_norm_epsilon,
+            eos_token_id=eos_token_id,
+        )
 
         if use_pretrained and not saved_weights_in_checkpoint:
             pretrained_kwargs = pretrained_kwargs or {}
-            self.transformer = TransfoXLModel.from_pretrained(pretrained_model_name_or_path, **pretrained_kwargs)
+            transformer = load_pretrained_hf_model(TransfoXLModel, pretrained_model_name_or_path, **pretrained_kwargs)
         else:
-            config = TransfoXLConfig(
-                vocab_size=vocab_size,
-                cutoffs=cutoffs,
-                d_model=d_model,
-                d_embed=d_embed,
-                n_head=n_head,
-                d_head=d_head,
-                d_inner=d_inner,
-                div_val=div_val,
-                pre_lnorm=pre_lnorm,
-                n_layer=n_layer,
-                mem_len=mem_len,
-                clamp_len=clamp_len,
-                same_length=same_length,
-                proj_share_all_but_first=proj_share_all_but_first,
-                attn_type=attn_type,
-                sample_softmax=sample_softmax,
-                adaptive=adaptive,
-                dropout=dropout,
-                dropatt=dropatt,
-                untie_r=untie_r,
-                init=init,
-                init_range=init_range,
-                proj_init_std=proj_init_std,
-                init_std=init_std,
-                layer_norm_epsilon=layer_norm_epsilon,
-                eos_token_id=eos_token_id,
-            )
-            self.transformer = TransfoXLModel(config)
+            config = TransfoXLConfig(**hf_config_params)
+            transformer = TransfoXLModel(config)
+
+        if encoder_config is not None:
+            self.config = self._init_config(transformer, hf_config_params.keys(), encoder_config)
+        else:
+            self.config = None
+
         self.reduce_output = reduce_output
         if self.reduce_output == "cls_pooled":
             _cls_pooled_error_message(self.__class__.__name__)
         self.reduce_sequence = SequenceReducer(reduce_mode=reduce_output)
-        if trainable:
-            self.transformer.train()
-        else:
-            freeze_parameters(self.transformer)
+        self.transformer = FreezeModule(transformer, frozen=not trainable)
         self.max_sequence_length = max_sequence_length
 
     def forward(self, inputs: torch.Tensor, mask: torch.Tensor = None) -> Dict[str, torch.Tensor]:
-        transformer_outputs = self.transformer(inputs)
+        transformer_outputs = self.transformer.module(inputs)
         hidden = transformer_outputs[0]
         hidden = self.reduce_sequence(hidden, self.reduce_output)
         return {"encoder_output": hidden}
@@ -1149,9 +1106,9 @@ class TransformerXLEncoder(Encoder):
     @property
     def output_shape(self) -> torch.Size:
         if self.reduce_output is None:
-            return torch.Size([self.max_sequence_length, self.transformer.config.d_model])
+            return torch.Size([self.max_sequence_length, self.transformer.module.config.d_model])
         else:
-            return torch.Size([self.transformer.config.d_model])
+            return torch.Size([self.transformer.module.config.d_model])
 
     @property
     def input_dtype(self):
@@ -1160,21 +1117,14 @@ class TransformerXLEncoder(Encoder):
 
 @DeveloperAPI
 @register_encoder("xlnet", TEXT)
-class XLNetEncoder(Encoder):
-    fixed_preprocessing_parameters = {
-        "tokenizer": "hf_tokenizer",
-        "pretrained_model_name_or_path": "feature.pretrained_model_name_or_path",
-    }
-
-    default_params = {
-        "pretrained_model_name_or_path": "xlnet-base-cased",
-    }
+class XLNetEncoder(HFTextEncoder):
+    DEFAULT_MODEL_NAME = "xlnet-base-cased"
 
     def __init__(
         self,
         max_sequence_length: int,
         use_pretrained: bool = True,
-        pretrained_model_name_or_path: str = "xlnet-base-cased",
+        pretrained_model_name_or_path: str = DEFAULT_MODEL_NAME,
         saved_weights_in_checkpoint: bool = False,
         reduce_output: str = "sum",
         trainable: bool = False,
@@ -1210,67 +1160,61 @@ class XLNetEncoder(Encoder):
         **kwargs,
     ):
         super().__init__()
-        self.config = encoder_config
 
-        try:
-            from transformers import XLNetConfig, XLNetModel
-        except ModuleNotFoundError:
-            logger.error(
-                " transformers is not installed. "
-                "In order to install all text feature dependencies run "
-                "pip install ludwig[text]"
-            )
-            sys.exit(-1)
+        from transformers import XLNetConfig, XLNetModel
+
+        hf_config_params = dict(
+            vocab_size=vocab_size,
+            d_model=d_model,
+            n_layer=n_layer,
+            n_head=n_head,
+            d_inner=d_inner,
+            ff_activation=ff_activation,
+            untie_r=untie_r,
+            attn_type=attn_type,
+            initializer_range=initializer_range,
+            layer_norm_eps=layer_norm_eps,
+            dropout=dropout,
+            mem_len=mem_len,
+            reuse_len=reuse_len,
+            use_mems_eval=use_mems_eval,
+            use_mems_train=use_mems_train,
+            bi_data=bi_data,
+            clamp_len=clamp_len,
+            same_length=same_length,
+            summary_type=summary_type,
+            summary_use_proj=summary_use_proj,
+            summary_activation=summary_activation,
+            summary_last_dropout=summary_last_dropout,
+            start_n_top=start_n_top,
+            end_n_top=end_n_top,
+            pad_token_id=pad_token_id,
+            bos_token_id=bos_token_id,
+            eos_token_id=eos_token_id,
+        )
 
         if use_pretrained and not saved_weights_in_checkpoint:
             pretrained_kwargs = pretrained_kwargs or {}
-            self.transformer = XLNetModel.from_pretrained(pretrained_model_name_or_path, **pretrained_kwargs)
+            transformer = load_pretrained_hf_model(XLNetModel, pretrained_model_name_or_path, **pretrained_kwargs)
         else:
-            config = XLNetConfig(
-                vocab_size=vocab_size,
-                d_model=d_model,
-                n_layer=n_layer,
-                n_head=n_head,
-                d_inner=d_inner,
-                ff_activation=ff_activation,
-                untie_r=untie_r,
-                attn_type=attn_type,
-                initializer_range=initializer_range,
-                layer_norm_eps=layer_norm_eps,
-                dropout=dropout,
-                mem_len=mem_len,
-                reuse_len=reuse_len,
-                use_mems_eval=use_mems_eval,
-                use_mems_train=use_mems_train,
-                bi_data=bi_data,
-                clamp_len=clamp_len,
-                same_length=same_length,
-                summary_type=summary_type,
-                summary_use_proj=summary_use_proj,
-                summary_activation=summary_activation,
-                summary_last_dropout=summary_last_dropout,
-                start_n_top=start_n_top,
-                end_n_top=end_n_top,
-                pad_token_id=pad_token_id,
-                bos_token_id=bos_token_id,
-                eos_token_id=eos_token_id,
-            )
-            self.transformer = XLNetModel(config)
+            transformer = self._init_transformer_from_scratch(XLNetModel, XLNetConfig, hf_config_params, vocab_size)
+
+        if encoder_config is not None:
+            self.config = self._init_config(transformer, hf_config_params.keys(), encoder_config)
+        else:
+            self.config = None
+
         self.max_sequence_length = max_sequence_length
         self.reduce_output = reduce_output
         if self.reduce_output == "cls_pooled":
             _cls_pooled_error_message(self.__class__.__name__)
         self.reduce_sequence = SequenceReducer(reduce_mode=reduce_output)
-        if trainable:
-            self.transformer.train()
-        else:
-            freeze_parameters(self.transformer)
-        self.transformer.resize_token_embeddings(vocab_size)
+        self.transformer = FreezeModule(transformer, frozen=not trainable)
 
     def forward(self, inputs: torch.Tensor, mask: torch.Tensor = None) -> Dict[str, torch.Tensor]:
         if mask is not None:
             mask = mask.to(torch.int32)
-        transformer_outputs = self.transformer(
+        transformer_outputs = self.transformer.module(
             input_ids=inputs,
             attention_mask=mask,
             token_type_ids=torch.zeros_like(inputs),
@@ -1290,9 +1234,9 @@ class XLNetEncoder(Encoder):
     @property
     def output_shape(self) -> torch.Size:
         if self.reduce_output is None:
-            return torch.Size([self.max_sequence_length, self.transformer.config.d_model])
+            return torch.Size([self.max_sequence_length, self.transformer.module.config.d_model])
         else:
-            return torch.Size([self.transformer.config.d_model])
+            return torch.Size([self.transformer.module.config.d_model])
 
     @property
     def input_dtype(self):
@@ -1301,23 +1245,16 @@ class XLNetEncoder(Encoder):
 
 @DeveloperAPI
 @register_encoder("distilbert", TEXT)
-class DistilBERTEncoder(Encoder):
-    fixed_preprocessing_parameters = {
-        "tokenizer": "hf_tokenizer",
-        "pretrained_model_name_or_path": "feature.pretrained_model_name_or_path",
-    }
-
-    default_params = {
-        "pretrained_model_name_or_path": "distilbert-base-uncased",
-    }
+class DistilBERTEncoder(HFTextEncoder):
+    DEFAULT_MODEL_NAME = "distilbert-base-uncased"
 
     def __init__(
         self,
         max_sequence_length: int,
-        pretrained_model_name_or_path: str = "distilbert-base-uncased",
+        pretrained_model_name_or_path: str = DEFAULT_MODEL_NAME,
         saved_weights_in_checkpoint: bool = False,
         reduce_output: str = "sum",
-        trainable: bool = True,
+        trainable: bool = False,
         use_pretrained: bool = True,
         vocab_size: int = 30522,
         max_position_embeddings: int = 512,
@@ -1337,59 +1274,58 @@ class DistilBERTEncoder(Encoder):
         **kwargs,
     ):
         super().__init__()
-        self.config = encoder_config
 
-        try:
-            from transformers import DistilBertConfig, DistilBertModel
-        except ModuleNotFoundError:
-            logger.error(
-                " transformers is not installed. "
-                "In order to install all text feature dependencies run "
-                "pip install ludwig[text]"
-            )
-            sys.exit(-1)
+        from transformers import DistilBertConfig, DistilBertModel
+
+        hf_config_params = dict(
+            vocab_size=vocab_size,
+            max_position_embeddings=max_position_embeddings,
+            sinusoidal_pos_embds=sinusoidal_pos_embds,
+            n_layers=n_layers,
+            n_heads=n_heads,
+            dim=dim,
+            hidden_dim=hidden_dim,
+            dropout=dropout,
+            attention_dropout=attention_dropout,
+            activation=activation,
+            initializer_range=initializer_range,
+            qa_dropout=qa_dropout,
+            seq_classif_dropout=seq_classif_dropout,
+        )
 
         if use_pretrained and not saved_weights_in_checkpoint:
             pretrained_kwargs = pretrained_kwargs or {}
-            self.transformer = DistilBertModel.from_pretrained(pretrained_model_name_or_path, **pretrained_kwargs)
+            transformer = load_pretrained_hf_model(DistilBertModel, pretrained_model_name_or_path, **pretrained_kwargs)
         else:
-            config = DistilBertConfig(
-                vocab_size=vocab_size,
-                max_position_embeddings=max_position_embeddings,
-                sinusoidal_pos_embds=sinusoidal_pos_embds,
-                n_layers=n_layers,
-                n_heads=n_heads,
-                dim=dim,
-                hidden_dim=hidden_dim,
-                dropout=dropout,
-                attention_dropout=attention_dropout,
-                activation=activation,
-                initializer_range=initializer_range,
-                qa_dropout=qa_dropout,
-                seq_classif_dropout=seq_classif_dropout,
+            transformer = self._init_transformer_from_scratch(
+                DistilBertModel, DistilBertConfig, hf_config_params, vocab_size
             )
-            self.transformer = DistilBertModel(config)
 
-        if trainable:
-            self.transformer.train()
+        if encoder_config is not None:
+            self.config = self._init_config(transformer, hf_config_params.keys(), encoder_config)
         else:
-            freeze_parameters(self.transformer)
+            self.config = None
 
+        self.transformer = FreezeModule(transformer, frozen=not trainable)
         self.reduce_output = reduce_output
         if self.reduce_output == "cls_pooled":
             _cls_pooled_error_message(self.__class__.__name__)
         self.max_sequence_length = max_sequence_length
         self.reduce_sequence = SequenceReducer(reduce_mode=reduce_output)
-        self.transformer.resize_token_embeddings(vocab_size)
+        self.last_inputs = None
+        self.last_hidden = None
 
     def forward(self, inputs: torch.Tensor, mask: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
         if mask is not None:
             mask = mask.to(torch.int32)
-        transformer_outputs = self.transformer(
+
+        transformer_outputs = self.transformer.module(
             input_ids=inputs,
             attention_mask=mask,
         )
         hidden = transformer_outputs[0][:, 1:-1, :]
+        self.last_inputs = inputs
+        self.last_hidden = hidden
         hidden = self.reduce_sequence(hidden, self.reduce_output)
         return {"encoder_output": hidden}
 
@@ -1405,8 +1341,8 @@ class DistilBERTEncoder(Encoder):
     def output_shape(self) -> torch.Size:
         if self.reduce_output is None:
             # Subtract 2 to remove CLS and PAD tokens added by BERT tokenizer.
-            return torch.Size([self.max_sequence_length - 2, self.transformer.config.dim])
-        return torch.Size([self.transformer.config.dim])
+            return torch.Size([self.max_sequence_length - 2, self.transformer.module.config.dim])
+        return torch.Size([self.transformer.module.config.dim])
 
     @property
     def input_dtype(self):
@@ -1415,24 +1351,17 @@ class DistilBERTEncoder(Encoder):
 
 @DeveloperAPI
 @register_encoder("ctrl", TEXT)
-class CTRLEncoder(Encoder):
-    fixed_preprocessing_parameters = {
-        "tokenizer": "hf_tokenizer",
-        "pretrained_model_name_or_path": "feature.pretrained_model_name_or_path",
-    }
-
-    default_params = {
-        "pretrained_model_name_or_path": "ctrl",
-    }
+class CTRLEncoder(HFTextEncoder):
+    DEFAULT_MODEL_NAME = "ctrl"
 
     def __init__(
         self,
         max_sequence_length: int,
         use_pretrained: bool = True,
-        pretrained_model_name_or_path: str = "ctrl",
+        pretrained_model_name_or_path: str = DEFAULT_MODEL_NAME,
         saved_weights_in_checkpoint: bool = False,
         reduce_output: str = "sum",
-        trainable: bool = True,
+        trainable: bool = False,
         vocab_size: int = 246534,
         n_positions: int = 256,
         n_ctx: int = 256,
@@ -1450,54 +1379,48 @@ class CTRLEncoder(Encoder):
         **kwargs,
     ):
         super().__init__()
-        self.config = encoder_config
 
-        try:
-            from transformers import CTRLConfig, CTRLModel
-        except ModuleNotFoundError:
-            logger.error(
-                " transformers is not installed. "
-                "In order to install all text feature dependencies run "
-                "pip install ludwig[text]"
-            )
-            sys.exit(-1)
+        from transformers import CTRLConfig, CTRLModel
+
+        hf_config_params = dict(
+            vocab_size=vocab_size,
+            n_positions=n_positions,
+            n_ctx=n_ctx,
+            n_embd=n_embd,
+            dff=dff,
+            n_layer=n_layer,
+            n_head=n_head,
+            resid_pdrop=resid_pdrop,
+            embd_pdrop=embd_pdrop,
+            attn_pdrop=attn_pdrop,
+            layer_norm_epsilon=layer_norm_epsilon,
+            initializer_range=initializer_range,
+        )
 
         if use_pretrained and not saved_weights_in_checkpoint:
             pretrained_kwargs = pretrained_kwargs or {}
-            self.transformer = CTRLModel.from_pretrained(pretrained_model_name_or_path, **pretrained_kwargs)
+            transformer = load_pretrained_hf_model(CTRLModel, pretrained_model_name_or_path, **pretrained_kwargs)
+            self.vocab_size = transformer.config.vocab_size
         else:
-            config = CTRLConfig(
-                vocab_size=vocab_size,
-                n_positions=n_positions,
-                n_ctx=n_ctx,
-                n_embd=n_embd,
-                dff=dff,
-                n_layer=n_layer,
-                n_head=n_head,
-                resid_pdrop=resid_pdrop,
-                embd_pdrop=embd_pdrop,
-                attn_pdrop=attn_pdrop,
-                layer_norm_epsilon=layer_norm_epsilon,
-                initializer_range=initializer_range,
-            )
-            self.transformer = CTRLModel(config)
+            transformer = self._init_transformer_from_scratch(CTRLModel, CTRLConfig, hf_config_params, vocab_size)
+            self.vocab_size = vocab_size
 
-        self.vocab_size = vocab_size
-        self.max_sequence_length = max_sequence_length
-        if trainable:
-            self.transformer.train()
+        if encoder_config is not None:
+            self.config = self._init_config(transformer, hf_config_params.keys(), encoder_config)
         else:
-            freeze_parameters(self.transformer)
+            self.config = None
+
+        self.max_sequence_length = max_sequence_length
+        self.transformer = FreezeModule(transformer, frozen=not trainable)
         self.reduce_output = reduce_output
         if self.reduce_output == "cls_pooled":
             _cls_pooled_error_message(self.__class__.__name__)
         self.reduce_sequence = SequenceReducer(reduce_mode=reduce_output)
-        self.transformer.resize_token_embeddings(self.vocab_size)
 
     def forward(self, inputs: torch.Tensor, mask: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
         if mask is not None:
             mask = mask.to(torch.int32)
-        transformer_outputs = self.transformer(
+        transformer_outputs = self.transformer.module(
             input_ids=inputs,
             attention_mask=mask,
             token_type_ids=torch.zeros_like(inputs),
@@ -1517,8 +1440,8 @@ class CTRLEncoder(Encoder):
     @property
     def output_shape(self) -> torch.Size:
         if self.reduce_output is None:
-            return torch.Size([self.max_sequence_length, self.transformer.config.n_embd])
-        return torch.Size([self.transformer.config.n_embd])
+            return torch.Size([self.max_sequence_length, self.transformer.module.config.n_embd])
+        return torch.Size([self.transformer.module.config.n_embd])
 
     @property
     def input_dtype(self):
@@ -1527,21 +1450,14 @@ class CTRLEncoder(Encoder):
 
 @DeveloperAPI
 @register_encoder("camembert", TEXT)
-class CamemBERTEncoder(Encoder):
-    fixed_preprocessing_parameters = {
-        "tokenizer": "hf_tokenizer",
-        "pretrained_model_name_or_path": "feature.pretrained_model_name_or_path",
-    }
-
-    default_params = {
-        "pretrained_model_name_or_path": "jplu/camembert-base",
-    }
+class CamemBERTEncoder(HFTextEncoder):
+    DEFAULT_MODEL_NAME = "camembert-base"
 
     def __init__(
         self,
         max_sequence_length: int,
         use_pretrained: bool = True,
-        pretrained_model_name_or_path: str = "jplu/camembert-base",
+        pretrained_model_name_or_path: str = DEFAULT_MODEL_NAME,
         saved_weights_in_checkpoint: bool = False,
         reduce_output: str = "cls-pooled",
         trainable: bool = False,
@@ -1566,56 +1482,51 @@ class CamemBERTEncoder(Encoder):
         **kwargs,
     ):
         super().__init__()
-        self.config = encoder_config
 
-        try:
-            from transformers import CamembertConfig, CamembertModel
-        except ModuleNotFoundError:
-            logger.error(
-                " transformers is not installed. "
-                "In order to install all text feature dependencies run "
-                "pip install ludwig[text]"
-            )
-            sys.exit(-1)
+        from transformers import CamembertConfig, CamembertModel
+
+        hf_config_params = dict(
+            vocab_size=vocab_size,
+            hidden_size=hidden_size,
+            num_hidden_layers=num_hidden_layers,
+            num_attention_heads=num_attention_heads,
+            intermediate_size=intermediate_size,
+            hidden_act=hidden_act,
+            hidden_dropout_prob=hidden_dropout_prob,
+            attention_probs_dropout_prob=attention_probs_dropout_prob,
+            max_position_embeddings=max_position_embeddings,
+            type_vocab_size=type_vocab_size,
+            initializer_range=initializer_range,
+            layer_norm_eps=layer_norm_eps,
+            pad_token_id=pad_token_id,
+            gradient_checkpointing=gradient_checkpointing,
+            position_embedding_type=position_embedding_type,
+            classifier_dropout=classifier_dropout,
+        )
 
         if use_pretrained and not saved_weights_in_checkpoint:
             pretrained_kwargs = pretrained_kwargs or {}
-            self.transformer = CamembertModel.from_pretrained(pretrained_model_name_or_path, **pretrained_kwargs)
+            transformer = load_pretrained_hf_model(CamembertModel, pretrained_model_name_or_path, **pretrained_kwargs)
         else:
-            config = CamembertConfig(
-                vocab_size=vocab_size,
-                hidden_size=hidden_size,
-                num_hidden_layers=num_hidden_layers,
-                num_attention_heads=num_attention_heads,
-                intermediate_size=intermediate_size,
-                hidden_act=hidden_act,
-                hidden_dropout_prob=hidden_dropout_prob,
-                attention_probs_dropout_prob=attention_probs_dropout_prob,
-                max_position_embeddings=max_position_embeddings,
-                type_vocab_size=type_vocab_size,
-                initializer_range=initializer_range,
-                layer_norm_eps=layer_norm_eps,
-                pad_token_id=pad_token_id,
-                gradient_checkpointing=gradient_checkpointing,
-                position_embedding_type=position_embedding_type,
-                classifier_dropout=classifier_dropout,
+            transformer = self._init_transformer_from_scratch(
+                CamembertModel, CamembertConfig, hf_config_params, vocab_size
             )
-            self.transformer = CamembertModel(config)
 
-        if trainable:
-            self.transformer.train()
+        if encoder_config is not None:
+            self.config = self._init_config(transformer, hf_config_params.keys(), encoder_config)
         else:
-            freeze_parameters(self.transformer)
+            self.config = None
+
+        self.transformer = FreezeModule(transformer, frozen=not trainable)
         self.reduce_output = reduce_output
         if not self.reduce_output == "cls_pooled":
             self.reduce_sequence = SequenceReducer(reduce_mode=reduce_output)
-        self.transformer.resize_token_embeddings(vocab_size)
         self.max_sequence_length = max_sequence_length
 
     def forward(self, inputs: torch.Tensor, mask: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
         if mask is not None:
             mask = mask.to(torch.int32)
-        transformer_outputs = self.transformer(
+        transformer_outputs = self.transformer.module(
             input_ids=inputs,
             attention_mask=mask,
             token_type_ids=torch.zeros_like(inputs),
@@ -1643,10 +1554,10 @@ class CamemBERTEncoder(Encoder):
             return torch.Size(
                 [
                     self.max_sequence_length - 2,
-                    self.transformer.config.hidden_size,
+                    self.transformer.module.config.hidden_size,
                 ]
             )
-        return torch.Size([self.transformer.config.hidden_size])
+        return torch.Size([self.transformer.module.config.hidden_size])
 
     @property
     def input_dtype(self):
@@ -1655,21 +1566,14 @@ class CamemBERTEncoder(Encoder):
 
 @DeveloperAPI
 @register_encoder("t5", TEXT)
-class T5Encoder(Encoder):
-    fixed_preprocessing_parameters = {
-        "tokenizer": "hf_tokenizer",
-        "pretrained_model_name_or_path": "feature.pretrained_model_name_or_path",
-    }
-
-    default_params = {
-        "pretrained_model_name_or_path": "t5-small",
-    }
+class T5Encoder(HFTextEncoder):
+    DEFAULT_MODEL_NAME = "t5-small"
 
     def __init__(
         self,
         max_sequence_length: int,
         use_pretrained: bool = True,
-        pretrained_model_name_or_path: str = "t5-small",
+        pretrained_model_name_or_path: str = DEFAULT_MODEL_NAME,
         saved_weights_in_checkpoint: bool = False,
         reduce_output: str = "sum",
         trainable: bool = False,
@@ -1690,53 +1594,46 @@ class T5Encoder(Encoder):
         **kwargs,
     ):
         super().__init__()
-        self.config = encoder_config
 
-        try:
-            from transformers import T5Config, T5Model
-        except ModuleNotFoundError:
-            logger.error(
-                " transformers is not installed. "
-                "In order to install all text feature dependencies run "
-                "pip install ludwig[text]"
-            )
-            sys.exit(-1)
+        from transformers import T5Config, T5Model
+
+        hf_config_params = dict(
+            vocab_size=vocab_size,
+            d_model=d_model,
+            d_kv=d_kv,
+            d_ff=d_ff,
+            num_layers=num_layers,
+            num_decoder_layers=num_decoder_layers,
+            num_heads=num_heads,
+            relative_attention_num_buckets=relative_attention_num_buckets,
+            dropout_rate=dropout_rate,
+            layer_norm_eps=layer_norm_eps,
+            initializer_factor=initializer_factor,
+            feed_forward_proj=feed_forward_proj,
+        )
 
         if use_pretrained and not saved_weights_in_checkpoint:
             pretrained_kwargs = pretrained_kwargs or {}
-            self.transformer = T5Model.from_pretrained(pretrained_model_name_or_path, **pretrained_kwargs)
+            transformer = load_pretrained_hf_model(T5Model, pretrained_model_name_or_path, **pretrained_kwargs)
         else:
-            config = T5Config(
-                vocab_size=vocab_size,
-                d_model=d_model,
-                d_kv=d_kv,
-                d_ff=d_ff,
-                num_layers=num_layers,
-                num_decoder_layers=num_decoder_layers,
-                num_heads=num_heads,
-                relative_attention_num_buckets=relative_attention_num_buckets,
-                dropout_rate=dropout_rate,
-                layer_norm_eps=layer_norm_eps,
-                initializer_factor=initializer_factor,
-                feed_forward_proj=feed_forward_proj,
-            )
-            self.transformer = T5Model(config)
+            transformer = self._init_transformer_from_scratch(T5Model, T5Config, hf_config_params, vocab_size)
+
+        if encoder_config is not None:
+            self.config = self._init_config(transformer, hf_config_params.keys(), encoder_config)
+        else:
+            self.config = None
 
         self.max_sequence_length = max_sequence_length
         self.reduce_output = reduce_output
         if self.reduce_output == "cls_pooled":
             _cls_pooled_error_message(self.__class__.__name__)
         self.reduce_sequence = SequenceReducer(reduce_mode=reduce_output)
-        if trainable:
-            self.transformer.train()
-        else:
-            freeze_parameters(self.transformer)
-        self.transformer.resize_token_embeddings(vocab_size)
+        self.transformer = FreezeModule(transformer, frozen=not trainable)
 
     def forward(self, inputs: torch.Tensor, mask: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
         if mask is not None:
             mask = mask.to(torch.int32)
-        transformer_outputs = self.transformer(
+        transformer_outputs = self.transformer.module(
             inputs,
             decoder_input_ids=inputs,
             attention_mask=mask,
@@ -1760,10 +1657,10 @@ class T5Encoder(Encoder):
             return torch.Size(
                 [
                     self.max_sequence_length - 1,
-                    self.transformer.config.hidden_size,
+                    self.transformer.module.config.hidden_size,
                 ]
             )
-        return torch.Size([self.transformer.config.d_model])
+        return torch.Size([self.transformer.module.config.d_model])
 
     @property
     def input_dtype(self):
@@ -1772,21 +1669,14 @@ class T5Encoder(Encoder):
 
 @DeveloperAPI
 @register_encoder("flaubert", TEXT)
-class FlauBERTEncoder(Encoder):
-    fixed_preprocessing_parameters = {
-        "tokenizer": "hf_tokenizer",
-        "pretrained_model_name_or_path": "feature.pretrained_model_name_or_path",
-    }
-
-    default_params = {
-        "pretrained_model_name_or_path": "flaubert/flaubert_small_cased",
-    }
+class FlauBERTEncoder(HFTextEncoder):
+    DEFAULT_MODEL_NAME = "flaubert/flaubert_small_cased"
 
     def __init__(
         self,
         max_sequence_length: int,
         use_pretrained: bool,
-        pretrained_model_name_or_path: str = "flaubert/flaubert_small_cased",
+        pretrained_model_name_or_path: str = DEFAULT_MODEL_NAME,
         saved_weights_in_checkpoint: bool = False,
         reduce_output: str = "sum",
         trainable: bool = False,
@@ -1794,8 +1684,8 @@ class FlauBERTEncoder(Encoder):
         pre_norm: bool = False,
         layerdrop: float = 0.0,
         emb_dim: int = 2048,
-        n_layer: int = 12,
-        n_head: int = 16,
+        n_layers: int = 12,
+        n_heads: int = 16,
         dropout: float = 0.1,
         attention_dropout: float = 0.1,
         gelu_activation: bool = True,
@@ -1806,7 +1696,7 @@ class FlauBERTEncoder(Encoder):
         use_lang_emb: bool = True,
         max_position_embeddings: int = 512,
         embed_init_std: float = 2048**-0.5,
-        init_std: int = 50257,
+        init_std: int = 0.02,
         layer_norm_eps: float = 1e-12,
         bos_index: int = 0,
         eos_index: int = 1,
@@ -1821,67 +1711,62 @@ class FlauBERTEncoder(Encoder):
         **kwargs,
     ):
         super().__init__()
-        self.config = encoder_config
 
-        try:
-            from transformers import FlaubertConfig, FlaubertModel
-        except ModuleNotFoundError:
-            logger.error(
-                " transformers is not installed. "
-                "In order to install all text feature dependencies run "
-                "pip install ludwig[text]"
-            )
-            sys.exit(-1)
+        from transformers import FlaubertConfig, FlaubertModel
+
+        hf_config_params = dict(
+            vocab_size=vocab_size,
+            pre_norm=pre_norm,
+            layerdrop=layerdrop,
+            emb_dim=emb_dim,
+            n_layers=n_layers,
+            n_heads=n_heads,
+            dropout=dropout,
+            attention_dropout=dropout,
+            gelu_activation=gelu_activation,
+            sinusoidal_embeddings=sinusoidal_embeddings,
+            causal=causal,
+            asm=asm,
+            n_langs=n_langs,
+            use_lang_emb=use_lang_emb,
+            max_position_embeddings=max_position_embeddings,
+            embed_init_std=embed_init_std,
+            init_std=init_std,
+            layer_norm_eps=layer_norm_eps,
+            bos_index=bos_index,
+            eos_index=eos_index,
+            pad_index=pad_index,
+            unk_index=unk_index,
+            mask_index=mask_index,
+            is_encoder=is_encoder,
+            mask_token_id=mask_token_id,
+            lang_id=lang_id,
+        )
 
         if use_pretrained and not saved_weights_in_checkpoint:
             pretrained_kwargs = pretrained_kwargs or {}
-            self.transformer = FlaubertModel.from_pretrained(pretrained_model_name_or_path, **pretrained_kwargs)
+            transformer = load_pretrained_hf_model(FlaubertModel, pretrained_model_name_or_path, **pretrained_kwargs)
         else:
-            config = FlaubertConfig(
-                vocab_size=vocab_size,
-                pre_norm=pre_norm,
-                layerdrop=layerdrop,
-                emb_dim=emb_dim,
-                n_layer=n_layer,
-                n_head=n_head,
-                dropout=dropout,
-                attention_dropout=dropout,
-                gelu_activation=gelu_activation,
-                sinusoidal_embeddings=sinusoidal_embeddings,
-                causal=causal,
-                asm=asm,
-                n_langs=n_langs,
-                use_lang_emb=use_lang_emb,
-                max_position_embeddings=max_position_embeddings,
-                embed_init_std=embed_init_std,
-                init_std=init_std,
-                layer_norm_eps=layer_norm_eps,
-                bos_index=bos_index,
-                eos_index=eos_index,
-                pad_index=pad_index,
-                unk_index=unk_index,
-                mask_index=mask_index,
-                is_encoder=is_encoder,
-                mask_token_id=mask_token_id,
-                lang_id=lang_id,
+            transformer = self._init_transformer_from_scratch(
+                FlaubertModel, FlaubertConfig, hf_config_params, vocab_size
             )
-            self.transformer = FlaubertModel(config)
+
+        if encoder_config is not None:
+            self.config = self._init_config(transformer, hf_config_params.keys(), encoder_config)
+        else:
+            self.config = None
 
         self.max_sequence_length = max_sequence_length
         self.reduce_output = reduce_output
         if self.reduce_output == "cls_pooled":
             _cls_pooled_error_message(self.__class__.__name__)
         self.reduce_sequence = SequenceReducer(reduce_mode=reduce_output)
-        if trainable:
-            self.transformer.train()
-        else:
-            freeze_parameters(self.transformer)
-        self.transformer.resize_token_embeddings(vocab_size)
+        self.transformer = FreezeModule(transformer, frozen=not trainable)
 
     def forward(self, inputs: torch.Tensor, mask: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
         if mask is not None:
             mask = mask.to(torch.int32)
-        transformer_outputs = self.transformer(
+        transformer_outputs = self.transformer.module(
             input_ids=inputs,
             attention_mask=mask,
             token_type_ids=torch.zeros_like(inputs),
@@ -1905,10 +1790,10 @@ class FlauBERTEncoder(Encoder):
             return torch.Size(
                 [
                     self.max_sequence_length - 2,
-                    self.transformer.config.hidden_size,
+                    self.transformer.module.config.hidden_size,
                 ]
             )
-        return torch.Size([self.transformer.config.emb_dim])
+        return torch.Size([self.transformer.module.config.emb_dim])
 
     @property
     def input_dtype(self):
@@ -1917,21 +1802,14 @@ class FlauBERTEncoder(Encoder):
 
 @DeveloperAPI
 @register_encoder("electra", TEXT)
-class ELECTRAEncoder(Encoder):
-    fixed_preprocessing_parameters = {
-        "tokenizer": "hf_tokenizer",
-        "pretrained_model_name_or_path": "feature.pretrained_model_name_or_path",
-    }
-
-    default_params = {
-        "pretrained_model_name_or_path": "google/electra-small-discriminator",
-    }
+class ELECTRAEncoder(HFTextEncoder):
+    DEFAULT_MODEL_NAME = "google/electra-small-discriminator"
 
     def __init__(
         self,
         max_sequence_length: int,
         use_pretrained: bool = True,
-        pretrained_model_name_or_path: str = "google/electra-small-discriminator",
+        pretrained_model_name_or_path: str = DEFAULT_MODEL_NAME,
         saved_weights_in_checkpoint: bool = False,
         reduce_output: str = "sum",
         trainable: bool = False,
@@ -1955,56 +1833,49 @@ class ELECTRAEncoder(Encoder):
         **kwargs,
     ):
         super().__init__()
-        self.config = encoder_config
 
-        try:
-            from transformers import ElectraConfig, ElectraModel
-        except ModuleNotFoundError:
-            logger.error(
-                " transformers is not installed. "
-                "In order to install all text feature dependencies run "
-                "pip install ludwig[text]"
-            )
-            sys.exit(-1)
+        from transformers import ElectraConfig, ElectraModel
+
+        hf_config_params = dict(
+            vocab_size=vocab_size,
+            embedding_size=embedding_size,
+            hidden_size=hidden_size,
+            num_hidden_layers=num_hidden_layers,
+            num_attention_heads=num_attention_heads,
+            intermediate_size=intermediate_size,
+            hidden_act=hidden_act,
+            hidden_dropout_prob=hidden_dropout_prob,
+            attention_probs_dropout_prob=attention_probs_dropout_prob,
+            max_position_embeddings=max_position_embeddings,
+            type_vocab_size=type_vocab_size,
+            initializer_range=initializer_range,
+            layer_norm_eps=layer_norm_eps,
+            position_embedding_type=position_embedding_type,
+            classifier_dropout=classifier_dropout,
+        )
 
         if use_pretrained and not saved_weights_in_checkpoint:
             pretrained_kwargs = pretrained_kwargs or {}
-            self.transformer = ElectraModel.from_pretrained(pretrained_model_name_or_path, **pretrained_kwargs)
+            transformer = load_pretrained_hf_model(ElectraModel, pretrained_model_name_or_path, **pretrained_kwargs)
         else:
-            config = ElectraConfig(
-                vocab_size=vocab_size,
-                embedding_size=embedding_size,
-                hidden_size=hidden_size,
-                num_hidden_layers=num_hidden_layers,
-                num_attention_heads=num_attention_heads,
-                intermediate_size=intermediate_size,
-                hidden_act=hidden_act,
-                hidden_dropout_prob=hidden_dropout_prob,
-                attention_probs_dropout_prob=attention_probs_dropout_prob,
-                max_position_embeddings=max_position_embeddings,
-                type_vocab_size=type_vocab_size,
-                initializer_range=initializer_range,
-                layer_norm_eps=layer_norm_eps,
-                position_embedding_type=position_embedding_type,
-                classifier_dropout=classifier_dropout,
-            )
-            self.transformer = ElectraModel(config)
+            transformer = self._init_transformer_from_scratch(ElectraModel, ElectraConfig, hf_config_params, vocab_size)
+
+        if encoder_config is not None:
+            self.config = self._init_config(transformer, hf_config_params.keys(), encoder_config)
+        else:
+            self.config = None
 
         self.max_sequence_length = max_sequence_length
         self.reduce_output = reduce_output
         if self.reduce_output == "cls_pooled":
             _cls_pooled_error_message(self.__class__.__name__)
         self.reduce_sequence = SequenceReducer(reduce_mode=reduce_output)
-        if trainable:
-            self.transformer.train()
-        else:
-            freeze_parameters(self.transformer)
-        self.transformer.resize_token_embeddings(vocab_size)
+        self.transformer = FreezeModule(transformer, frozen=not trainable)
 
     def forward(self, inputs: torch.Tensor, mask: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
         if mask is not None:
             mask = mask.to(torch.int32)
-        transformer_outputs = self.transformer(
+        transformer_outputs = self.transformer.module(
             input_ids=inputs,
             attention_mask=mask,
             token_type_ids=torch.zeros_like(inputs),
@@ -2028,10 +1899,10 @@ class ELECTRAEncoder(Encoder):
             return torch.Size(
                 [
                     self.max_sequence_length - 2,
-                    self.transformer.config.hidden_size,
+                    self.transformer.module.config.hidden_size,
                 ]
             )
-        return torch.Size([self.transformer.config.hidden_size])
+        return torch.Size([self.transformer.module.config.hidden_size])
 
     @property
     def input_dtype(self):
@@ -2040,15 +1911,8 @@ class ELECTRAEncoder(Encoder):
 
 @DeveloperAPI
 @register_encoder("longformer", TEXT)
-class LongformerEncoder(Encoder):
-    fixed_preprocessing_parameters = {
-        "tokenizer": "hf_tokenizer",
-        "pretrained_model_name_or_path": "feature.pretrained_model_name_or_path",
-    }
-
-    default_params = {
-        "pretrained_model_name_or_path": "allenai/longformer-base-4096",
-    }
+class LongformerEncoder(HFTextEncoder):
+    DEFAULT_MODEL_NAME = "allenai/longformer-base-4096"
 
     def __init__(
         self,
@@ -2056,48 +1920,50 @@ class LongformerEncoder(Encoder):
         use_pretrained: bool = True,
         attention_window: Union[List[int], int] = 512,
         sep_token_id: int = 2,
-        pretrained_model_name_or_path: str = "allenai/longformer-base-4096",
+        pretrained_model_name_or_path: str = DEFAULT_MODEL_NAME,
         saved_weights_in_checkpoint: bool = False,
         reduce_output: Optional[str] = "cls_pooled",
         trainable: bool = False,
+        vocab_size: int = 50265,
         num_tokens: Optional[int] = None,
         pretrained_kwargs: Dict = None,
         encoder_config=None,
         **kwargs,
     ):
         super().__init__()
-        self.config = encoder_config
 
-        try:
-            from transformers import LongformerConfig, LongformerModel
-        except ModuleNotFoundError:
-            logger.error(
-                " transformers is not installed. "
-                "In order to install all text feature dependencies run "
-                "pip install ludwig[text]"
-            )
-            sys.exit(-1)
+        from transformers import LongformerConfig, LongformerModel
+
+        hf_config_params = dict(
+            attention_window=attention_window,
+            sep_token_id=sep_token_id,
+            vocab_size=vocab_size,
+            **kwargs,
+        )
 
         if use_pretrained and not saved_weights_in_checkpoint:
             pretrained_kwargs = pretrained_kwargs or {}
-            self.transformer = LongformerModel.from_pretrained(pretrained_model_name_or_path, pretrained_kwargs)
+            transformer = load_pretrained_hf_model(LongformerModel, pretrained_model_name_or_path, **pretrained_kwargs)
         else:
-            config = LongformerConfig(attention_window, sep_token_id, **kwargs)
-            self.transformer = LongformerModel(config)
+            transformer = self._init_transformer_from_scratch(
+                LongformerModel, LongformerConfig, hf_config_params, vocab_size
+            )
+
+        if encoder_config is not None:
+            self.config = self._init_config(transformer, hf_config_params.keys(), encoder_config)
+        else:
+            self.config = None
+
         self.reduce_output = reduce_output
         if not self.reduce_output == "cls_pooled":
             self.reduce_sequence = SequenceReducer(reduce_mode=reduce_output)
-        if trainable:
-            self.transformer.train()
-        else:
-            freeze_parameters(self.transformer)
-        self.transformer.resize_token_embeddings(num_tokens)
+        self.transformer = FreezeModule(transformer, frozen=not trainable)
         self.max_sequence_length = max_sequence_length
 
     def forward(self, inputs: torch.Tensor, mask: Optional[torch.Tensor] = None):
         if mask is not None:
             mask = mask.to(torch.int32)
-        transformer_outputs = self.transformer(
+        transformer_outputs = self.transformer.module(
             input_ids=inputs,
             attention_mask=mask,
             token_type_ids=torch.zeros_like(inputs),
@@ -2124,10 +1990,10 @@ class LongformerEncoder(Encoder):
             return torch.Size(
                 [
                     self.max_sequence_length - 2,
-                    self.transformer.config.hidden_size,
+                    self.transformer.module.config.hidden_size,
                 ]
             )
-        return torch.Size([self.transformer.config.hidden_size])
+        return torch.Size([self.transformer.module.config.hidden_size])
 
     @property
     def input_dtype(self):
@@ -2136,11 +2002,8 @@ class LongformerEncoder(Encoder):
 
 @DeveloperAPI
 @register_encoder("auto_transformer", TEXT)
-class AutoTransformerEncoder(Encoder):
-    fixed_preprocessing_parameters = {
-        "tokenizer": "hf_tokenizer",
-        "pretrained_model_name_or_path": "feature.pretrained_model_name_or_path",
-    }
+class AutoTransformerEncoder(HFTextEncoder):
+    DEFAULT_MODEL_NAME = None
 
     def __init__(
         self,
@@ -2148,41 +2011,39 @@ class AutoTransformerEncoder(Encoder):
         max_sequence_length: int,
         reduce_output: str = "sum",
         trainable: bool = False,
-        vocab_size: int = None,
+        vocab_size: Optional[int] = None,
         pretrained_kwargs: Dict = None,
         encoder_config=None,
         **kwargs,
     ):
         super().__init__()
-        self.config = encoder_config
 
-        try:
-            from transformers import AutoModel
-        except ModuleNotFoundError:
-            logger.error(
-                " transformers is not installed. "
-                "In order to install all text feature dependencies run "
-                "pip install ludwig[text]"
-            )
-            sys.exit(-1)
+        from transformers import AutoModel
 
         pretrained_kwargs = pretrained_kwargs or {}
-        self.transformer = AutoModel.from_pretrained(pretrained_model_name_or_path, **pretrained_kwargs)
+        transformer = load_pretrained_hf_model(AutoModel, pretrained_model_name_or_path, **pretrained_kwargs)
+        self._maybe_resize_token_embeddings(transformer, vocab_size)
+
+        self.config = self._init_config(transformer, [], encoder_config)
+
+        self.transformer = FreezeModule(transformer, frozen=not trainable)
         self.reduce_output = reduce_output
         if self.reduce_output != "cls_pooled":
             self.reduce_sequence = SequenceReducer(reduce_mode=reduce_output)
-        if trainable:
-            self.transformer.train()
-        else:
-            freeze_parameters(self.transformer)
-        self.transformer.resize_token_embeddings(vocab_size)
-        self.vocab_size = vocab_size
         self.max_sequence_length = max_sequence_length
+
+    def _maybe_resize_token_embeddings(self, transformer, vocab_size: Optional[int] = None):
+        """Overridden because AutoModel should use its own vocab size unless vocab size is explicitly specified."""
+        if vocab_size is not None:
+            transformer.resize_token_embeddings(vocab_size)
+            self.vocab_size = vocab_size
+        else:
+            self.vocab_size = transformer.config.vocab_size
 
     def forward(self, inputs: torch.Tensor, mask: Optional[torch.Tensor] = None):
         if mask is not None:
             mask = mask.to(torch.int32)
-        transformer_outputs = self.transformer(
+        transformer_outputs = self.transformer.module(
             input_ids=inputs,
             attention_mask=mask,
             token_type_ids=torch.zeros_like(inputs),
@@ -2209,8 +2070,8 @@ class AutoTransformerEncoder(Encoder):
     def output_shape(self) -> torch.Size:
         if self.reduce_output is None:
             # TODO(justin): This may need to be conditioned on which AutoModel gets chosen.
-            return torch.Size([self.max_sequence_length, self.transformer.config.hidden_size])
-        return torch.Size([self.transformer.config.hidden_size])
+            return torch.Size([self.max_sequence_length, self.transformer.module.config.hidden_size])
+        return torch.Size([self.transformer.module.config.hidden_size])
 
     @property
     def input_dtype(self):

@@ -15,6 +15,7 @@
 # ==============================================================================
 import copy
 import logging
+from abc import ABC, abstractmethod
 from typing import Any, Dict, Union
 
 import numpy as np
@@ -25,6 +26,12 @@ from torch import nn
 from ludwig.constants import COLUMN, HIDDEN, LOGITS, NAME, NUMBER, PREDICTIONS, PROC_COLUMN
 from ludwig.features.base_feature import BaseFeatureMixin, InputFeature, OutputFeature, PredictModule
 from ludwig.schema.features.number_feature import NumberInputFeatureConfig, NumberOutputFeatureConfig
+from ludwig.types import (
+    FeatureMetadataDict,
+    FeaturePostProcessingOutputDict,
+    PreprocessingConfigDict,
+    TrainingSetMetadataDict,
+)
 from ludwig.utils import output_feature_utils
 from ludwig.utils.misc_utils import get_from_registry
 from ludwig.utils.types import TorchscriptPreprocessingInput
@@ -32,7 +39,30 @@ from ludwig.utils.types import TorchscriptPreprocessingInput
 logger = logging.getLogger(__name__)
 
 
-class ZScoreTransformer(nn.Module):
+class NumberTransformer(nn.Module, ABC):
+    @abstractmethod
+    def transform(self, x: np.ndarray) -> np.ndarray:
+        pass
+
+    @abstractmethod
+    def inverse_transform(self, x: np.ndarray) -> np.ndarray:
+        pass
+
+    @abstractmethod
+    def transform_inference(self, x: torch.Tensor) -> torch.Tensor:
+        pass
+
+    @abstractmethod
+    def inverse_transform_inference(self, x: torch.Tensor) -> torch.Tensor:
+        pass
+
+    @staticmethod
+    @abstractmethod
+    def fit_transform_params(column: np.ndarray, backend: Any) -> Dict[str, Any]:
+        pass
+
+
+class ZScoreTransformer(NumberTransformer):
     def __init__(self, mean: float = None, std: float = None, **kwargs: dict):
         super().__init__()
         self.mu = float(mean) if mean is not None else mean
@@ -59,7 +89,7 @@ class ZScoreTransformer(nn.Module):
         return x * self.sigma + self.mu
 
     @staticmethod
-    def fit_transform_params(column: np.ndarray, backend: "Backend") -> dict:  # noqa
+    def fit_transform_params(column: np.ndarray, backend: "Backend") -> Dict[str, Any]:  # noqa
         compute = backend.df_engine.compute
         return {
             "mean": compute(column.astype(np.float32).mean()),
@@ -67,7 +97,7 @@ class ZScoreTransformer(nn.Module):
         }
 
 
-class MinMaxTransformer(nn.Module):
+class MinMaxTransformer(NumberTransformer):
     def __init__(self, min: float = None, max: float = None, **kwargs: dict):
         super().__init__()
         self.min_value = float(min) if min is not None else min
@@ -94,7 +124,7 @@ class MinMaxTransformer(nn.Module):
         return x * self.range + self.min_value
 
     @staticmethod
-    def fit_transform_params(column: np.ndarray, backend: "Backend") -> dict:  # noqa
+    def fit_transform_params(column: np.ndarray, backend: "Backend") -> Dict[str, Any]:  # noqa
         compute = backend.df_engine.compute
         return {
             "min": compute(column.astype(np.float32).min()),
@@ -102,7 +132,46 @@ class MinMaxTransformer(nn.Module):
         }
 
 
-class Log1pTransformer(nn.Module):
+class InterQuartileTransformer(NumberTransformer):
+    def __init__(self, q1: float = None, q2: float = None, q3: float = None, **kwargs: dict):
+        super().__init__()
+        self.q1 = float(q1) if q1 is not None else q1
+        self.q2 = float(q2) if q2 is not None else q2
+        self.q3 = float(q3) if q3 is not None else q3
+        if self.q1 is None or self.q3 is None:
+            self.interquartile_range = None
+        else:
+            self.interquartile_range = self.q3 - self.q1
+        self.feature_name = kwargs.get(NAME, "")
+        if self.interquartile_range == 0:
+            raise RuntimeError(
+                f"Cannot apply InterQuartileNormalization to `{self.feature_name}` since"
+                "the interquartile range is 0, which will result in a ZeroDivisionError."
+            )
+
+    def transform(self, x: np.ndarray) -> np.ndarray:
+        return (x - self.q2) / self.interquartile_range
+
+    def inverse_transform(self, x: np.ndarray) -> np.ndarray:
+        return x * self.interquartile_range + self.q2
+
+    def transform_inference(self, x: torch.Tensor) -> torch.Tensor:
+        return (x - self.q2) / self.interquartile_range
+
+    def inverse_transform_inference(self, x: torch.Tensor) -> torch.Tensor:
+        return x * self.interquartile_range + self.q2
+
+    @staticmethod
+    def fit_transform_params(column: np.ndarray, backend: "Backend") -> Dict[str, Any]:  # noqa
+        compute = backend.df_engine.compute
+        return {
+            "q1": compute(np.percentile(column.astype(np.float32), 25)),
+            "q2": compute(np.percentile(column.astype(np.float32), 50)),
+            "q3": compute(np.percentile(column.astype(np.float32), 75)),
+        }
+
+
+class Log1pTransformer(NumberTransformer):
     def __init__(self, **kwargs: dict):
         super().__init__()
 
@@ -123,11 +192,11 @@ class Log1pTransformer(nn.Module):
         return torch.expm1(x)
 
     @staticmethod
-    def fit_transform_params(column: np.ndarray, backend: "Backend") -> dict:  # noqa
+    def fit_transform_params(column: np.ndarray, backend: "Backend") -> Dict[str, Any]:  # noqa
         return {}
 
 
-class IdentityTransformer(nn.Module):
+class IdentityTransformer(NumberTransformer):
     def __init__(self, **kwargs):
         super().__init__()
 
@@ -144,7 +213,7 @@ class IdentityTransformer(nn.Module):
         return x
 
     @staticmethod
-    def fit_transform_params(column: np.ndarray, backend: "Backend") -> dict:  # noqa
+    def fit_transform_params(column: np.ndarray, backend: "Backend") -> Dict[str, Any]:  # noqa
         return {}
 
 
@@ -152,40 +221,65 @@ numeric_transformation_registry = {
     "minmax": MinMaxTransformer,
     "zscore": ZScoreTransformer,
     "log1p": Log1pTransformer,
+    "iq": InterQuartileTransformer,
     None: IdentityTransformer,
 }
 
 
-def get_transformer(metadata, preprocessing_parameters):
+def get_transformer(metadata, preprocessing_parameters) -> NumberTransformer:
     return get_from_registry(
         preprocessing_parameters.get("normalization", None),
         numeric_transformation_registry,
     )(**metadata)
 
 
+class _OutlierReplacer(torch.nn.Module):
+    def __init__(self, metadata: TrainingSetMetadataDict):
+        super().__init__()
+        self.zscore_transformer = ZScoreTransformer(**metadata)
+        self.outlier_threshold = metadata["preprocessing"].get("outlier_threshold")
+        self.computed_outlier_fill_value = float(metadata["preprocessing"]["computed_outlier_fill_value"])
+
+    def forward(self, v: torch.Tensor) -> torch.Tensor:
+        outliers = self.zscore_transformer.transform_inference(v).abs().gt(self.outlier_threshold)
+        v_masked = torch.masked_fill(v, outliers, torch.nan)
+
+        v = torch.nan_to_num(v_masked, nan=self.computed_outlier_fill_value)
+        return v.to(dtype=torch.float32)
+
+
 class _NumberPreprocessing(torch.nn.Module):
-    def __init__(self, metadata: Dict[str, Any]):
+    def __init__(self, metadata: TrainingSetMetadataDict):
         super().__init__()
         self.computed_fill_value = float(metadata["preprocessing"]["computed_fill_value"])
         self.numeric_transformer = get_transformer(metadata, metadata["preprocessing"])
+
+        # Optional outlier replacement
+        self.outlier_replacer = None
+        if metadata["preprocessing"].get("outlier_strategy") is not None:
+            self.outlier_replacer = _OutlierReplacer(metadata)
 
     def forward(self, v: TorchscriptPreprocessingInput) -> torch.Tensor:
         if not torch.jit.isinstance(v, torch.Tensor):
             raise ValueError(f"Unsupported input: {v}")
 
         v = torch.nan_to_num(v, nan=self.computed_fill_value)
-
         v = v.to(dtype=torch.float32)
+
+        # Handle outliers if needed
+        if self.outlier_replacer is not None:
+            v = self.outlier_replacer(v)
+
         return self.numeric_transformer.transform_inference(v)
 
 
 class _NumberPostprocessing(torch.nn.Module):
-    def __init__(self, metadata: Dict[str, Any]):
+    def __init__(self, metadata: TrainingSetMetadataDict):
         super().__init__()
         self.numeric_transformer = get_transformer(metadata, metadata["preprocessing"])
         self.predictions_key = PREDICTIONS
 
-    def forward(self, preds: Dict[str, torch.Tensor], feature_name: str) -> Dict[str, Any]:
+    def forward(self, preds: Dict[str, torch.Tensor], feature_name: str) -> FeaturePostProcessingOutputDict:
         predictions = output_feature_utils.get_output_feature_tensor(preds, feature_name, self.predictions_key)
 
         return {self.predictions_key: self.numeric_transformer.inverse_transform_inference(predictions)}
@@ -217,13 +311,22 @@ class NumberFeatureMixin(BaseFeatureMixin):
         return backend.df_engine.df_lib.to_numeric(column, errors="coerce").astype(np.float32)
 
     @staticmethod
-    def get_feature_meta(column, preprocessing_parameters, backend):
-        numeric_transformer = get_from_registry(
+    def get_feature_meta(
+        column, preprocessing_parameters: PreprocessingConfigDict, backend, is_input_feature: bool
+    ) -> FeatureMetadataDict:
+        numeric_transformer: NumberTransformer = get_from_registry(
             preprocessing_parameters.get("normalization", None),
             numeric_transformation_registry,
         )
 
-        return numeric_transformer.fit_transform_params(column, backend)
+        params = numeric_transformer.fit_transform_params(column, backend)
+
+        # Ensure mean and std are computed if we're removing outliers
+        outlier_strategy = preprocessing_parameters.get("outlier_strategy")
+        if outlier_strategy is not None and ("mean" not in params or "std" not in params):
+            params.update(ZScoreTransformer.fit_transform_params(column, backend))
+
+        return params
 
     @staticmethod
     def add_feature_data(
@@ -231,7 +334,7 @@ class NumberFeatureMixin(BaseFeatureMixin):
         input_df,
         proc_df,
         metadata,
-        preprocessing_parameters,
+        preprocessing_parameters: PreprocessingConfigDict,
         backend,
         skip_save_processed_input,
     ):
@@ -306,17 +409,15 @@ class NumberInputFeature(NumberFeatureMixin, InputFeature):
         return torch.rand([batch_size])
 
     @classmethod
-    def get_preproc_input_dtype(cls, metadata: Dict[str, Any]) -> str:
+    def get_preproc_input_dtype(cls, metadata: TrainingSetMetadataDict) -> str:
         return "float32"
 
     @staticmethod
-    def create_preproc_module(metadata: Dict[str, Any]) -> torch.nn.Module:
+    def create_preproc_module(metadata: TrainingSetMetadataDict) -> torch.nn.Module:
         return _NumberPreprocessing(metadata)
 
 
 class NumberOutputFeature(NumberFeatureMixin, OutputFeature):
-    metric_functions = NumberOutputFeatureConfig.get_output_metric_functions()
-
     def __init__(
         self,
         output_feature_config: Union[NumberOutputFeatureConfig, Dict],
@@ -388,9 +489,9 @@ class NumberOutputFeature(NumberFeatureMixin, OutputFeature):
         return NumberOutputFeatureConfig
 
     @classmethod
-    def get_postproc_output_dtype(cls, metadata: Dict[str, Any]) -> str:
+    def get_postproc_output_dtype(cls, metadata: TrainingSetMetadataDict) -> str:
         return "float32"
 
     @staticmethod
-    def create_postproc_module(metadata: Dict[str, Any]) -> torch.nn.Module:
+    def create_postproc_module(metadata: TrainingSetMetadataDict) -> torch.nn.Module:
         return _NumberPostprocessing(metadata)

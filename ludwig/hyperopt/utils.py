@@ -6,6 +6,7 @@ import os
 import warnings
 from typing import Any, Dict
 
+from ludwig.api_annotations import DeveloperAPI
 from ludwig.constants import (
     AUTO,
     COMBINED,
@@ -31,6 +32,7 @@ from ludwig.constants import (
 )
 from ludwig.globals import HYPEROPT_STATISTICS_FILE_NAME
 from ludwig.hyperopt.results import HyperoptResults, TrialResults
+from ludwig.types import HyperoptConfigDict, ModelConfigDict
 from ludwig.utils.data_utils import save_json
 from ludwig.utils.misc_utils import (
     get_class_attributes,
@@ -103,7 +105,7 @@ def parameter_to_dict(name, value):
     return parameter_dict
 
 
-def feature_list_to_dict(config: Dict[str, Any]) -> Dict[str, Any]:
+def feature_list_to_dict(config: ModelConfigDict) -> ModelConfigDict:
     input_features_dict = {}
     for feature in config[INPUT_FEATURES]:
         input_features_dict[feature[NAME]] = feature
@@ -118,7 +120,7 @@ def feature_list_to_dict(config: Dict[str, Any]) -> Dict[str, Any]:
     return config
 
 
-def feature_dict_to_list(config: Dict[str, Any]) -> Dict[str, Any]:
+def feature_dict_to_list(config: ModelConfigDict) -> ModelConfigDict:
     # This works because Python dicts are order-preserving, so we do not need to
     # do anything special to map from a key in the dict to an index in a list
     input_features_list = []
@@ -136,7 +138,7 @@ def feature_dict_to_list(config: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def substitute_parameters(
-    config: Dict[str, Any],
+    config: ModelConfigDict,
     parameters: Dict[str, Any],
 ):
     """Update Ludwig config with parameters sampled from the Hyperopt sampler."""
@@ -172,20 +174,33 @@ def substitute_parameters(
     return config
 
 
-def log_warning_if_all_grid_type_parameters(hyperopt_parameter_config: Dict[str, Any], num_samples: int = 1) -> None:
-    """Logs warning if all parameters have a grid type search space and num_samples > 1 since this will result in
-    duplicate trials being created."""
+@DeveloperAPI
+def get_num_duplicate_trials(hyperopt_config: HyperoptConfigDict) -> int:
+    """Returns the number of duplicate trials that will be created.
+
+    Duplicate trials are only created when there are grid type parameters and num_samples > 1.
+    """
+    num_samples = hyperopt_config[EXECUTOR].get(NUM_SAMPLES, 1)
     if num_samples == 1:
-        return
+        return 0
 
     total_grid_search_trials = 1
-
-    for _, param_info in hyperopt_parameter_config.items():
-        if param_info.get(SPACE, None) != GRID_SEARCH:
-            return
-        total_grid_search_trials *= len(param_info.get("values", []))
+    for _, param_info in hyperopt_config[PARAMETERS].items():
+        if param_info.get(SPACE, None) == GRID_SEARCH:
+            total_grid_search_trials *= len(param_info.get("values", []))
 
     num_duplicate_trials = (total_grid_search_trials * num_samples) - total_grid_search_trials
+    return num_duplicate_trials
+
+
+def log_warning_if_all_grid_type_parameters(hyperopt_config: HyperoptConfigDict) -> None:
+    """Logs warning if all parameters have a grid type search space and num_samples > 1 since this will result in
+    duplicate trials being created."""
+    num_duplicate_trials = get_num_duplicate_trials(hyperopt_config)
+    if num_duplicate_trials == 0:
+        return
+
+    num_samples = hyperopt_config[EXECUTOR].get(NUM_SAMPLES, 1)
     warnings.warn(
         "All hyperopt parameters in Ludwig config are using grid_search space, but number of samples "
         f"({num_samples}) is greater than 1. This will result in {num_duplicate_trials} duplicate trials being "
@@ -194,7 +209,7 @@ def log_warning_if_all_grid_type_parameters(hyperopt_parameter_config: Dict[str,
     )
 
 
-def update_hyperopt_params_with_defaults(hyperopt_params: Dict[str, Any]) -> None:
+def update_hyperopt_params_with_defaults(hyperopt_params: HyperoptConfigDict) -> None:
     """Updates user's Ludwig config with default hyperopt parameters."""
     from ludwig.hyperopt.execution import executor_registry
 
@@ -204,7 +219,13 @@ def update_hyperopt_params_with_defaults(hyperopt_params: Dict[str, Any]) -> Non
     set_default_value(hyperopt_params, METRIC, LOSS)
     set_default_value(hyperopt_params, GOAL, MINIMIZE)
 
-    set_default_values(hyperopt_params[EXECUTOR], {TYPE: RAY, NUM_SAMPLES: 1, MAX_CONCURRENT_TRIALS: AUTO})
+    set_default_values(
+        hyperopt_params[EXECUTOR],
+        {TYPE: RAY, NUM_SAMPLES: 1, MAX_CONCURRENT_TRIALS: AUTO},
+    )
+
+    if hyperopt_params[EXECUTOR].get("trial_driver_resources") is None:
+        hyperopt_params[EXECUTOR]["trial_driver_resources"] = {"CPU": 1, "GPU": 0}
 
     executor = get_from_registry(hyperopt_params[EXECUTOR][TYPE], executor_registry)
     executor_defaults = {k: v for k, v in executor.__dict__.items() if k in get_class_attributes(executor)}

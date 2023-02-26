@@ -1,23 +1,25 @@
 from typing import List
 
-from marshmallow_dataclass import dataclass
-
+from ludwig.api_annotations import DeveloperAPI
 from ludwig.constants import H3
 from ludwig.schema import utils as schema_utils
 from ludwig.schema.encoders.base import BaseEncoderConfig
 from ludwig.schema.encoders.utils import register_encoder_config
-from ludwig.schema.metadata.encoder_metadata import ENCODER_METADATA
+from ludwig.schema.metadata import ENCODER_METADATA
+from ludwig.schema.utils import ludwig_dataclass
 
 
+@DeveloperAPI
 @register_encoder_config("embed", H3)
-@dataclass(repr=False)
+@ludwig_dataclass
 class H3EmbedConfig(BaseEncoderConfig):
+    @staticmethod
+    def module_name():
+        return "H3Embed"
 
-    type: str = schema_utils.StringOptions(
-        ["embed"],
-        default="embed",
-        allow_none=False,
-        description="Type of encoder.",
+    type: str = schema_utils.ProtectedString(
+        "embed",
+        description=ENCODER_METADATA["H3Embed"]["type"].long_description,
     )
 
     dropout: float = schema_utils.FloatRange(
@@ -80,6 +82,7 @@ class H3EmbedConfig(BaseEncoderConfig):
     norm: str = schema_utils.StringOptions(
         ["batch", "layer"],
         default=None,
+        allow_none=True,
         description="The default norm that will be used for each layer.",
         parameter_metadata=ENCODER_METADATA["H3Embed"]["norm"],
     )
@@ -103,15 +106,17 @@ class H3EmbedConfig(BaseEncoderConfig):
     )
 
 
+@DeveloperAPI
 @register_encoder_config("weighted_sum", H3)
-@dataclass(repr=False)
+@ludwig_dataclass
 class H3WeightedSumConfig(BaseEncoderConfig):
+    @staticmethod
+    def module_name():
+        return "H3WeightedSum"
 
-    type: str = schema_utils.StringOptions(
-        ["weighted_sum"],
-        default="weighted_sum",
-        allow_none=False,
-        description="Type of encoder.",
+    type: str = schema_utils.ProtectedString(
+        "weighted_sum",
+        description=ENCODER_METADATA["H3WeightedSum"]["type"].long_description,
     )
 
     dropout: float = schema_utils.FloatRange(
@@ -174,6 +179,7 @@ class H3WeightedSumConfig(BaseEncoderConfig):
     norm: str = schema_utils.StringOptions(
         ["batch", "layer"],
         default=None,
+        allow_none=True,
         description="The default norm that will be used for each layer.",
         parameter_metadata=ENCODER_METADATA["H3WeightedSum"]["norm"],
     )
@@ -197,15 +203,17 @@ class H3WeightedSumConfig(BaseEncoderConfig):
     )
 
 
+@DeveloperAPI
 @register_encoder_config("rnn", H3)
-@dataclass(repr=False)
+@ludwig_dataclass
 class H3RNNConfig(BaseEncoderConfig):
+    @staticmethod
+    def module_name():
+        return "H3RNN"
 
-    type: str = schema_utils.StringOptions(
-        ["rnn"],
-        default="rnn",
-        allow_none=False,
-        description="Type of encoder.",
+    type: str = schema_utils.ProtectedString(
+        "rnn",
+        description=ENCODER_METADATA["H3RNN"]["type"].long_description,
     )
 
     dropout: float = schema_utils.FloatRange(

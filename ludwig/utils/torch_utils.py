@@ -9,18 +9,36 @@ import torch
 from torch import nn
 from torch.nn import Module, ModuleDict
 
+from ludwig.api_annotations import DeveloperAPI
 from ludwig.utils.strings_utils import SpecialSymbol
 
 _TORCH_INIT_PARAMS: Optional[Tuple] = None
 
 
+@DeveloperAPI
 def get_torch_device():
-    return "cuda" if torch.cuda.is_available() else "cpu"
+    if torch.cuda.is_available():
+        return "cuda"
+
+    if bool(os.environ.get("LUDWIG_ENABLE_MPS")):
+        if torch.backends.mps.is_available() and torch.backends.mps.is_built():
+            if not bool(os.environ.get("PYTORCH_ENABLE_MPS_FALLBACK")):
+                warnings.warn(
+                    "LUDWIG_ENABLE_MPS is set and MPS is available, but PYTORCH_ENABLE_MPS_FALLBACK has not been set. "
+                    "Depending on your model config, some operations may not be compatible. If errors occur, try "
+                    "setting `PYTORCH_ENABLE_MPS_FALLBACK=1` and resubmitting."
+                )
+            return "mps"
+        else:
+            warnings.warn("LUDWIG_ENABLE_MPS is set but MPS is not available, falling back to CPU.")
+
+    return "cpu"
 
 
 DEVICE = get_torch_device()
 
 
+@DeveloperAPI
 def place_on_device(x, device):
     """Recursively places the input on the specified device."""
     if isinstance(x, list):
@@ -37,6 +55,7 @@ def place_on_device(x, device):
         return x
 
 
+@DeveloperAPI
 def sequence_length_2D(sequence: torch.Tensor) -> torch.Tensor:
     """Returns the number of non-padding elements per sequence in batch.
 
@@ -50,6 +69,7 @@ def sequence_length_2D(sequence: torch.Tensor) -> torch.Tensor:
     return length
 
 
+@DeveloperAPI
 def sequence_length_3D(sequence: torch.Tensor) -> torch.Tensor:
     """Returns the number of non-zero elements per sequence in batch.
 
@@ -64,6 +84,7 @@ def sequence_length_3D(sequence: torch.Tensor) -> torch.Tensor:
     return length
 
 
+@DeveloperAPI
 def sequence_mask(lengths: torch.Tensor, maxlen: Optional[int] = None, dtype: torch.dtype = torch.bool):
     """Returns a mask of shape (batch_size x maxlen), where mask[i] is True for each element up to lengths[i],
     otherwise False i.e. if maxlen=5 and lengths[i] = 3, mask[i] = [True, True True, False False].
@@ -84,6 +105,7 @@ def sequence_mask(lengths: torch.Tensor, maxlen: Optional[int] = None, dtype: to
     return mask
 
 
+@DeveloperAPI
 def periodic(inputs: torch.Tensor, period: int) -> torch.Tensor:
     """Returns periodic representation assuming 0 is start of period."""
     return torch.cos(inputs * 2 * math.pi / period)
@@ -118,10 +140,12 @@ activations = {
 }
 
 
+@DeveloperAPI
 def get_activation(activation):
     return activations[activation]()
 
 
+@DeveloperAPI
 def reg_loss(model: nn.Module, regularizer: str, l1: float = 0.01, l2: float = 0.01):
     """Computes the regularization loss for a given model.
 
@@ -147,6 +171,7 @@ def reg_loss(model: nn.Module, regularizer: str, l1: float = 0.01, l2: float = 0
         return l1_reg + l2_reg
 
 
+@DeveloperAPI
 class LudwigModule(Module):
     def __init__(self):
         super().__init__()
@@ -209,6 +234,33 @@ class LudwigModule(Module):
             raise ValueError("Unknown output tensor type.")
 
 
+def freeze_parameters(module: nn.Module):
+    """Freezes the parameters of a torch module."""
+    for p in module.parameters():
+        p.requires_grad = False
+
+
+@DeveloperAPI
+class FreezeModule(nn.Module):
+    def __init__(self, module: nn.Module, frozen: bool):
+        super().__init__()
+        if frozen:
+            freeze_parameters(module)
+            module.eval()
+        else:
+            module.train()
+        self.module = module
+        self.frozen = frozen
+
+    def train(self, mode: bool = True):
+        if self.frozen:
+            # Ignores any attempt to set params trainable
+            return self
+
+        return super().train(mode)
+
+
+@DeveloperAPI
 class Dense(LudwigModule):
     def __init__(
         self,
@@ -236,14 +288,15 @@ class Dense(LudwigModule):
         return output
 
 
+@DeveloperAPI
 def initialize_pytorch(
     gpus: Optional[Union[int, str, List[int]]] = None,
     gpu_memory_limit: Optional[float] = None,
     allow_parallel_threads: bool = True,
-    horovod=None,  # Optional["horovod.torch"]
+    local_rank: int = 0,
+    local_size: int = 1,
 ):
-    use_horovod = horovod is not None
-    param_tuple = (gpus, gpu_memory_limit, allow_parallel_threads, use_horovod)
+    param_tuple = (gpus, gpu_memory_limit, allow_parallel_threads, local_rank, local_size)
     if _TORCH_INIT_PARAMS is not None:
         if _TORCH_INIT_PARAMS != param_tuple:
             warnings.warn(
@@ -263,17 +316,17 @@ def initialize_pytorch(
             torch.backends.cudnn.benchmark = False
 
     gpu_device_count = torch.cuda.device_count()
-    if horovod is not None and gpus is None:
-        if 0 < gpu_device_count < horovod.local_size():
+    if local_size > 1 and gpus is None:
+        if 0 < gpu_device_count < local_size:
             warnings.warn(
-                f"Horovod: disabling GPU support! This host is running with "
-                f"{horovod.local_size()} worker processes but only {gpu_device_count} "
+                f"Distributed: disabling GPU support! This host is running with "
+                f"{local_size} worker processes but only {gpu_device_count} "
                 f"GPUs. To enable GPU training, reduce the number of worker processes "
                 f"on this host to match the number of GPUs."
             )
             gpus = [-1]
         else:
-            gpus = [horovod.local_rank()]
+            gpus = [local_rank]
 
     if isinstance(gpus, int):
         gpus = [gpus]
@@ -310,6 +363,7 @@ def _get_torch_init_params() -> Optional[Tuple]:
     return _TORCH_INIT_PARAMS
 
 
+@DeveloperAPI
 def model_size(model: nn.Module):
     """Computes PyTorch model size in bytes."""
     size = 0

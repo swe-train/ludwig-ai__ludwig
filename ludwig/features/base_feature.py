@@ -22,18 +22,19 @@ from torch import Tensor
 from ludwig.constants import HIDDEN, LENGTHS, LOGITS, LOSS, PREDICTIONS, PROBABILITIES
 from ludwig.decoders.registry import get_decoder_cls
 from ludwig.encoders.registry import get_encoder_cls
-from ludwig.features.feature_utils import compute_feature_hash, get_input_size_with_dependencies
+from ludwig.features.feature_utils import get_input_size_with_dependencies
 from ludwig.modules.fully_connected_modules import FCStack
 from ludwig.modules.loss_modules import get_loss_cls
 from ludwig.modules.metric_modules import MeanMetric
-from ludwig.modules.metric_registry import get_metric_classes, get_metric_cls
+from ludwig.modules.metric_registry import get_metric_classes, get_metric_cls, get_metric_tensor_input
 from ludwig.modules.reduction_modules import SequenceReducer
 from ludwig.schema.features.base import BaseFeatureConfig, BaseOutputFeatureConfig
+from ludwig.types import FeatureConfigDict, FeatureMetadataDict, PreprocessingConfigDict, TrainingSetMetadataDict
 from ludwig.utils import output_feature_utils
 from ludwig.utils.calibration import CalibrationModule
 from ludwig.utils.metric_utils import get_scalar_from_ludwig_metric
 from ludwig.utils.torch_utils import LudwigModule
-from ludwig.utils.types import DataFrame
+from ludwig.utils.types import DataFrame, TorchscriptPreprocessingInput
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,9 @@ class BaseFeatureMixin(ABC):
         raise NotImplementedError
 
     @abstractstaticmethod
-    def get_feature_meta(column: DataFrame, preprocessing_parameters: Dict[str, Any], backend) -> Dict[str, Any]:
+    def get_feature_meta(
+        column: DataFrame, preprocessing_parameters: PreprocessingConfigDict, backend, is_input_feature: bool
+    ) -> FeatureMetadataDict:
         """Returns a dictionary of feature metadata.
 
         Args:
@@ -72,11 +75,11 @@ class BaseFeatureMixin(ABC):
 
     @abstractstaticmethod
     def add_feature_data(
-        feature_config: Dict[str, Any],
+        feature_config: FeatureConfigDict,
         input_df: DataFrame,
         proc_df: Dict[str, DataFrame],
-        metadata: Dict[str, Any],
-        preprocessing_parameters: Dict[str, Any],
+        metadata: TrainingSetMetadataDict,
+        preprocessing_parameters: PreprocessingConfigDict,
         backend,  # Union[Backend, str]
         skip_save_processed_input: bool,
     ) -> None:
@@ -127,8 +130,6 @@ class BaseFeature:
             feature.column = self.feature_name
         self.column = feature.column
 
-        if not feature.proc_column:
-            feature.proc_column = compute_feature_hash(type(feature).Schema().dump(feature))
         self.proc_column = feature.proc_column
 
 
@@ -139,9 +140,17 @@ class InputFeature(BaseFeature, LudwigModule, ABC):
         # Used by get_model_inputs(), which is used for tracing-based torchscript generation.
         return torch.rand([batch_size, *self.input_shape]).to(self.input_dtype)
 
+    def unskip(self) -> "InputFeature":
+        """Convert feature using passthrough wrapper back to full encoder."""
+        return self
+
     @staticmethod
     @abstractmethod
     def update_config_with_metadata(feature_config, feature_metadata, *args, **kwargs):
+        pass
+
+    def update_config_after_module_init(self, feature_config):
+        """Updates the config after the torch.nn.Module objects have been initialized."""
         pass
 
     def initialize_encoder(self, encoder_config):
@@ -151,11 +160,11 @@ class InputFeature(BaseFeature, LudwigModule, ABC):
         return encoder_cls(encoder_config=encoder_config, **encoder_params_dict)
 
     @classmethod
-    def get_preproc_input_dtype(cls, metadata: Dict[str, Any]) -> str:
+    def get_preproc_input_dtype(cls, metadata: TrainingSetMetadataDict) -> str:
         return "string"
 
     @staticmethod
-    def create_preproc_module(metadata: Dict[str, Any]) -> torch.nn.Module:
+    def create_preproc_module(metadata: TrainingSetMetadataDict) -> torch.nn.Module:
         raise NotImplementedError("Torchscript tracing not supported for feature")
 
 
@@ -178,6 +187,8 @@ class OutputFeature(BaseFeature, LudwigModule, ABC):
         """
         super().__init__(feature)
 
+        # List of names of metrics that this OutputFeature computes.
+        self.metric_names = []
         self.loss = feature.loss
         self.reduce_input = feature.reduce_input
         self.reduce_dependencies = feature.reduce_dependencies
@@ -232,11 +243,6 @@ class OutputFeature(BaseFeature, LudwigModule, ABC):
         """Returns the Tensor data type feature outputs."""
         pass
 
-    @property
-    @abstractmethod
-    def metric_functions(self) -> Dict:
-        pass
-
     def initialize_decoder(self, decoder_config):
         # Input to the decoder is the output feature's FC hidden layer.
         decoder_config.input_size = self.fc_stack.output_shape[-1]
@@ -266,8 +272,7 @@ class OutputFeature(BaseFeature, LudwigModule, ABC):
         self.eval_loss_metric = get_metric_cls(self.type(), self.loss.type)(**loss_kwargs)
 
     def _setup_metrics(self):
-        # needed to shadow class variable
-        self.metric_functions = {
+        self._metric_functions = {
             LOSS: self.eval_loss_metric,
             **{
                 name: cls(**self.loss_kwargs(), **self.metric_kwargs())
@@ -275,6 +280,7 @@ class OutputFeature(BaseFeature, LudwigModule, ABC):
                 if cls.can_report(self)
             },
         }
+        self.metric_names = sorted(list(self._metric_functions.keys()))
 
     def create_calibration_module(self, feature: BaseOutputFeatureConfig) -> CalibrationModule:
         """Creates and returns a CalibrationModule that converts logits to a probability distribution."""
@@ -340,18 +346,14 @@ class OutputFeature(BaseFeature, LudwigModule, ABC):
             targets: Tensor with target values for this output feature.
             predictions: Dict of tensors returned by predictions().
         """
-        for _, metric_fn in self.metric_functions.items():
-            metric_class = type(metric_fn)
-            prediction_key = metric_class.get_inputs()
-            # TODO(shreya): Metrics should ideally just move to the correct device
-            #  and not require the user to do this. This is a temporary fix. See
-            #  if this can be removed before merging the PR.
+        for metric_name, metric_fn in self._metric_functions.items():
+            prediction_key = get_metric_tensor_input(metric_name)
             metric_fn = metric_fn.to(predictions[prediction_key].device)
             metric_fn.update(predictions[prediction_key].detach(), targets)
 
     def get_metrics(self):
         metric_vals = {}
-        for metric_name, metric_fn in self.metric_functions.items():
+        for metric_name, metric_fn in self._metric_functions.items():
             try:
                 metric_vals[metric_name] = get_scalar_from_ludwig_metric(metric_fn)
             except Exception as e:
@@ -359,7 +361,7 @@ class OutputFeature(BaseFeature, LudwigModule, ABC):
         return metric_vals
 
     def reset_metrics(self):
-        for _, metric_fn in self.metric_functions.items():
+        for _, metric_fn in self._metric_functions.items():
             if metric_fn is not None:
                 metric_fn.reset()
 
@@ -417,16 +419,16 @@ class OutputFeature(BaseFeature, LudwigModule, ABC):
     def postprocess_predictions(
         self,
         result: Dict[str, Tensor],
-        metadata: Dict[str, Any],
+        metadata: TrainingSetMetadataDict,
     ):
         raise NotImplementedError
 
     @classmethod
-    def get_postproc_output_dtype(cls, metadata: Dict[str, Any]) -> str:
+    def get_postproc_output_dtype(cls, metadata: TrainingSetMetadataDict) -> str:
         return "string"
 
     @staticmethod
-    def create_postproc_module(metadata: Dict[str, Any]) -> torch.nn.Module:
+    def create_postproc_module(metadata: TrainingSetMetadataDict) -> torch.nn.Module:
         raise NotImplementedError("Torchscript tracing not supported for feature")
 
     @staticmethod
@@ -494,3 +496,71 @@ class OutputFeature(BaseFeature, LudwigModule, ABC):
     def unflatten(self, df: DataFrame) -> DataFrame:
         """Reshapes a flattened 1D array into its original shape."""
         return df
+
+
+class PassthroughPreprocModule(torch.nn.Module):
+    """Combines preprocessing and encoding into a single module for TorchScript inference.
+
+    For encoder outputs that were cached during preprocessing, the encoder is simply the identity function in the ECD
+    module. As such, we need this module to apply the encoding that would normally be done during preprocessing for
+    realtime inference.
+    """
+
+    def __init__(self, preproc: torch.nn.Module, encoder: torch.nn.Module):
+        self.preproc = preproc
+        self.encoder = encoder
+
+    def forward(self, v: TorchscriptPreprocessingInput) -> torch.Tensor:
+        preproc_v = self.preproc(v)
+        return self.encoder(preproc_v)
+
+
+def create_passthrough_input_feature(feature: InputFeature, config: BaseFeatureConfig) -> InputFeature:
+    """Creates a shim input feature that acts as a transparent identifiy function on the input data.
+
+    Used when the feature's encoder embeddings were cached in preprocessing. This way, we don't need to make any changes
+    to the underlying interface in such cases other than to swap the feature that would normally do the encoding with
+    this one.
+    """
+
+    class _InputPassthroughFeature(InputFeature):
+        def __init__(self, config: BaseFeatureConfig):
+            super().__init__(config)
+
+        def forward(self, inputs, mask=None):
+            assert isinstance(inputs, torch.Tensor)
+            return {"encoder_output": inputs}
+
+        @property
+        def input_dtype(self):
+            # Doesn't matter as combiner will need to cast them to float32 anyway
+            return torch.float32
+
+        @property
+        def input_shape(self):
+            return feature.encoder_obj.output_shape
+
+        @property
+        def output_shape(self) -> torch.Size:
+            return feature.encoder_obj.output_shape
+
+        @staticmethod
+        def update_config_with_metadata(feature_config, feature_metadata, *args, **kwargs):
+            return feature.update_config_with_metadata(feature_config, feature_metadata, *args, **kwargs)
+
+        @staticmethod
+        def get_schema_cls():
+            return feature.get_schema_cls()
+
+        @staticmethod
+        def create_preproc_module(metadata: TrainingSetMetadataDict) -> torch.nn.Module:
+            return PassthroughPreprocModule(feature.create_preproc_module(metadata), feature)
+
+        @staticmethod
+        def type():
+            return feature.type()
+
+        def unskip(self) -> InputFeature:
+            return feature
+
+    return _InputPassthroughFeature(config)

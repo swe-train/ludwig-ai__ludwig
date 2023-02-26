@@ -2,7 +2,7 @@
 """This script updates all golden JSON files containing expected data types."""
 import json
 
-from ludwig.automl.automl import create_auto_config
+from ludwig.automl import create_auto_config
 from tests.regression_tests.automl.utils import get_dataset_golden_types_path, get_dataset_object, TEST_DATASET_REGISTRY
 
 
@@ -16,7 +16,6 @@ def write_json_files():
             dataset=dataset,
             target=[],
             time_limit_s=3600,
-            tune_for_memory=False,
         )
 
         golden_types_path = get_dataset_golden_types_path(dataset_name)

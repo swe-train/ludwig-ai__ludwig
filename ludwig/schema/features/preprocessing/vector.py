@@ -1,16 +1,16 @@
-from marshmallow_dataclass import dataclass
-
-from ludwig.constants import DROP_ROW, MISSING_VALUE_STRATEGY_OPTIONS, PREPROCESSING, VECTOR
+from ludwig.api_annotations import DeveloperAPI
+from ludwig.constants import DROP_ROW, FILL_WITH_CONST, MISSING_VALUE_STRATEGY_OPTIONS, PREPROCESSING, VECTOR
 from ludwig.schema import utils as schema_utils
 from ludwig.schema.features.preprocessing.base import BasePreprocessingConfig
 from ludwig.schema.features.preprocessing.utils import register_preprocessor
-from ludwig.schema.metadata.feature_metadata import FEATURE_METADATA
+from ludwig.schema.metadata import FEATURE_METADATA
+from ludwig.schema.utils import ludwig_dataclass
 
 
+@DeveloperAPI
 @register_preprocessor(VECTOR)
-@dataclass(repr=False)
+@ludwig_dataclass
 class VectorPreprocessingConfig(BasePreprocessingConfig):
-
     vector_size: int = schema_utils.PositiveInteger(
         default=None,
         allow_none=True,
@@ -20,7 +20,7 @@ class VectorPreprocessingConfig(BasePreprocessingConfig):
 
     missing_value_strategy: str = schema_utils.StringOptions(
         MISSING_VALUE_STRATEGY_OPTIONS,
-        default="fill_with_const",
+        default=FILL_WITH_CONST,
         allow_none=False,
         description="What strategy to follow when there's a missing value in a vector column",
         parameter_metadata=FEATURE_METADATA[VECTOR][PREPROCESSING]["missing_value_strategy"],
@@ -44,14 +44,21 @@ class VectorPreprocessingConfig(BasePreprocessingConfig):
     )
 
 
+@DeveloperAPI
 @register_preprocessor("vector_output")
-@dataclass(repr=False)
+@ludwig_dataclass
 class VectorOutputPreprocessingConfig(VectorPreprocessingConfig):
-
     missing_value_strategy: str = schema_utils.StringOptions(
         MISSING_VALUE_STRATEGY_OPTIONS,
         default=DROP_ROW,
         allow_none=False,
         description="What strategy to follow when there's a missing value in a vector output feature",
         parameter_metadata=FEATURE_METADATA[VECTOR][PREPROCESSING]["missing_value_strategy"],
+    )
+
+    vector_size: int = schema_utils.PositiveInteger(
+        default=None,
+        allow_none=True,
+        description="The size of the vector. If None, the vector size will be inferred from the data.",
+        parameter_metadata=FEATURE_METADATA[VECTOR][PREPROCESSING]["vector_size"],
     )

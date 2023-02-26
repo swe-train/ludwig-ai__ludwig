@@ -14,7 +14,7 @@
 # limitations under the License.
 # ==============================================================================
 import logging
-from typing import Any, Dict, List, Tuple, Union
+from typing import Dict, List, Tuple, Union
 
 import numpy as np
 import torch
@@ -23,6 +23,13 @@ from ludwig.constants import BINARY, COLUMN, HIDDEN, LOGITS, NAME, PREDICTIONS, 
 from ludwig.error import InputDataError
 from ludwig.features.base_feature import BaseFeatureMixin, InputFeature, OutputFeature, PredictModule
 from ludwig.schema.features.binary_feature import BinaryInputFeatureConfig, BinaryOutputFeatureConfig
+from ludwig.types import (
+    FeatureConfigDict,
+    FeatureMetadataDict,
+    FeaturePostProcessingOutputDict,
+    PreprocessingConfigDict,
+    TrainingSetMetadataDict,
+)
 from ludwig.utils import calibration, output_feature_utils, strings_utils
 from ludwig.utils.eval_utils import (
     average_precision_score,
@@ -37,7 +44,7 @@ logger = logging.getLogger(__name__)
 
 
 class _BinaryPreprocessing(torch.nn.Module):
-    def __init__(self, metadata: Dict[str, Any]):
+    def __init__(self, metadata: TrainingSetMetadataDict):
         super().__init__()
         str2bool = metadata.get("str2bool")
         self.str2bool = str2bool or {v: True for v in strings_utils.BOOL_TRUE_STRS}
@@ -61,14 +68,14 @@ class _BinaryPreprocessing(torch.nn.Module):
 
 
 class _BinaryPostprocessing(torch.nn.Module):
-    def __init__(self, metadata: Dict[str, Any]):
+    def __init__(self, metadata: TrainingSetMetadataDict):
         super().__init__()
         bool2str = metadata.get("bool2str")
         self.bool2str = {i: v for i, v in enumerate(bool2str)} if bool2str is not None else None
         self.predictions_key = PREDICTIONS
         self.probabilities_key = PROBABILITIES
 
-    def forward(self, preds: Dict[str, torch.Tensor], feature_name: str) -> Dict[str, Any]:
+    def forward(self, preds: Dict[str, torch.Tensor], feature_name: str) -> FeaturePostProcessingOutputDict:
         predictions = output_feature_utils.get_output_feature_tensor(preds, feature_name, self.predictions_key)
         probabilities = output_feature_utils.get_output_feature_tensor(preds, feature_name, self.probabilities_key)
 
@@ -134,7 +141,9 @@ class BinaryFeatureMixin(BaseFeatureMixin):
         return column
 
     @staticmethod
-    def get_feature_meta(column: DataFrame, preprocessing_parameters: Dict[str, Any], backend) -> Dict[str, Any]:
+    def get_feature_meta(
+        column: DataFrame, preprocessing_parameters: PreprocessingConfigDict, backend, is_input_feature: bool
+    ) -> FeatureMetadataDict:
         if column.dtype != object:
             return {}
 
@@ -165,11 +174,11 @@ class BinaryFeatureMixin(BaseFeatureMixin):
 
     @staticmethod
     def add_feature_data(
-        feature_config: Dict[str, Any],
+        feature_config: FeatureConfigDict,
         input_df: DataFrame,
         proc_df: Dict[str, DataFrame],
-        metadata: Dict[str, Any],
-        preprocessing_parameters: Dict[str, Any],
+        metadata: TrainingSetMetadataDict,
+        preprocessing_parameters: PreprocessingConfigDict,
         backend,
         skip_save_processed_input: bool,
     ) -> None:
@@ -184,12 +193,14 @@ class BinaryFeatureMixin(BaseFeatureMixin):
                 column = backend.df_engine.map_objects(column, strings_utils.str2bool)
 
         proc_df[feature_config[PROC_COLUMN]] = column.astype(np.bool_)
+
         return proc_df
 
 
 class BinaryInputFeature(BinaryFeatureMixin, InputFeature):
     def __init__(self, input_feature_config: BinaryInputFeatureConfig, encoder_obj=None, **kwargs):
         super().__init__(input_feature_config, **kwargs)
+        input_feature_config.encoder.input_size = self.input_shape[-1]
 
         if encoder_obj:
             self.encoder_obj = encoder_obj
@@ -203,8 +214,15 @@ class BinaryInputFeature(BinaryFeatureMixin, InputFeature):
 
         if len(inputs.shape) == 1:
             inputs = inputs[:, None]
+
+        # Inputs to the binary encoder could be of dtype torch.bool. Linear layer
+        # weights are of dtype torch.float32. The inputs and the weights need to
+        # be of the same dtype.
+        if inputs.dtype == torch.bool:
+            inputs = inputs.type(torch.float32)
+
         encoder_outputs = self.encoder_obj(inputs)
-        return {"encoder_output": encoder_outputs}
+        return encoder_outputs
 
     @property
     def input_dtype(self):
@@ -230,17 +248,15 @@ class BinaryInputFeature(BinaryFeatureMixin, InputFeature):
         return torch.rand([batch_size]) > 0.5
 
     @classmethod
-    def get_preproc_input_dtype(cls, metadata: Dict[str, Any]) -> str:
+    def get_preproc_input_dtype(cls, metadata: TrainingSetMetadataDict) -> str:
         return "string" if metadata.get("str2bool") else "int32"
 
     @staticmethod
-    def create_preproc_module(metadata: Dict[str, Any]) -> torch.nn.Module:
+    def create_preproc_module(metadata: TrainingSetMetadataDict) -> torch.nn.Module:
         return _BinaryPreprocessing(metadata)
 
 
 class BinaryOutputFeature(BinaryFeatureMixin, OutputFeature):
-    metric_functions = BinaryOutputFeatureConfig.get_output_metric_functions()
-
     def __init__(
         self,
         output_feature_config: Union[BinaryOutputFeatureConfig, Dict],
@@ -360,8 +376,8 @@ class BinaryOutputFeature(BinaryFeatureMixin, OutputFeature):
                     prob_col: np.where(
                         result[probabilities_col] > 0.5, result[probabilities_col], 1 - result[probabilities_col]
                     ),
-                    probabilities_col: result.apply(lambda x: [1 - x[probabilities_col], x[probabilities_col]], axis=1),
-                }
+                    probabilities_col: result[probabilities_col].map(lambda x: [1 - x, x]),
+                },
             )
 
         return result
@@ -371,9 +387,13 @@ class BinaryOutputFeature(BinaryFeatureMixin, OutputFeature):
         return BinaryOutputFeatureConfig
 
     @classmethod
-    def get_postproc_output_dtype(cls, metadata: Dict[str, Any]) -> str:
+    def get_postproc_output_dtype(cls, metadata: TrainingSetMetadataDict) -> str:
         return "string" if metadata.get("bool2str") else "int32"
 
     @staticmethod
-    def create_postproc_module(metadata: Dict[str, Any]) -> torch.nn.Module:
+    def create_postproc_module(metadata: TrainingSetMetadataDict) -> torch.nn.Module:
         return _BinaryPostprocessing(metadata)
+
+    def metric_kwargs(self) -> dict:
+        """Returns arguments that are used to instantiate an instance of each metric class."""
+        return {"task": "binary"}

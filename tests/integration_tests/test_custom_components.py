@@ -8,7 +8,7 @@ from torch import nn, Tensor
 
 from ludwig.api import LudwigModel
 from ludwig.combiners.combiners import Combiner, register_combiner
-from ludwig.constants import NUMBER, TRAINER
+from ludwig.constants import BATCH_SIZE, LOGITS, MINIMIZE, NUMBER, TRAINER
 from ludwig.decoders.base import Decoder
 from ludwig.decoders.registry import register_decoder
 from ludwig.encoders.base import Encoder
@@ -22,6 +22,7 @@ from ludwig.schema.decoders.utils import register_decoder_config
 from ludwig.schema.encoders.base import BaseEncoderConfig
 from ludwig.schema.encoders.utils import register_encoder_config
 from ludwig.schema.features.loss.loss import BaseLossConfig
+from ludwig.schema.features.loss.loss import register_loss as register_loss_schema
 from tests.integration_tests.utils import (
     category_feature,
     generate_data,
@@ -33,7 +34,6 @@ from tests.integration_tests.utils import (
 
 @dataclass
 class CustomTestCombinerConfig(BaseCombinerConfig):
-
     type: str = "custom_combiner"
 
     foo: bool = schema_utils.Boolean(default=False, description="")
@@ -42,7 +42,6 @@ class CustomTestCombinerConfig(BaseCombinerConfig):
 @register_encoder_config("custom_number_encoder", NUMBER)
 @dataclass
 class CustomNumberEncoderConfig(BaseEncoderConfig):
-
     type: str = "custom_number_encoder"
 
     input_size: int = schema_utils.PositiveInteger(default=1, description="")
@@ -51,15 +50,14 @@ class CustomNumberEncoderConfig(BaseEncoderConfig):
 @register_decoder_config("custom_number_decoder", NUMBER)
 @dataclass
 class CustomNumberDecoderConfig(BaseDecoderConfig):
-
     type: str = "custom_number_decoder"
 
     input_size: int = schema_utils.PositiveInteger(default=1, description="")
 
 
+@register_loss_schema([NUMBER])
 @dataclass
 class CustomLossConfig(BaseLossConfig):
-
     type: str = "custom_loss"
 
 
@@ -138,7 +136,7 @@ class CustomLoss(nn.Module, LogitsInputsMixin):
         return CustomLossConfig
 
 
-@register_metric("custom_loss", [NUMBER])
+@register_metric("custom_loss", [NUMBER], MINIMIZE, LOGITS)
 class CustomLossMetric(LossMetric):
     def __init__(self, **kwargs):
         super().__init__()
@@ -186,7 +184,7 @@ def _run_test(input_features=None, output_features=None, combiner=None):
             "input_features": input_features,
             "output_features": output_features,
             "combiner": combiner,
-            TRAINER: {"epochs": 2},
+            TRAINER: {"epochs": 2, BATCH_SIZE: 128},
         }
 
         model = LudwigModel(config, backend=LocalTestBackend())

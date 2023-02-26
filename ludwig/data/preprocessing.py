@@ -17,16 +17,16 @@ import contextlib
 import logging
 import warnings
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 import torch
 
+from ludwig.api_annotations import DeveloperAPI
 from ludwig.backend import Backend, LOCAL_BACKEND
 from ludwig.constants import (
     BFILL,
-    BINARY,
     CHECKSUM,
     COLUMN,
     DEFAULTS,
@@ -38,7 +38,9 @@ from ludwig.constants import (
     FILL_WITH_MEAN,
     FILL_WITH_MODE,
     FULL,
+    META,
     MIN_DATASET_SPLIT_ROWS,
+    MODEL_ECD,
     NAME,
     NUMBER,
     PREPROCESSING,
@@ -50,13 +52,17 @@ from ludwig.constants import (
     TYPE,
     VALIDATION,
 )
+from ludwig.data.cache.manager import DatasetCache
 from ludwig.data.cache.types import wrap
 from ludwig.data.concatenate_datasets import concatenate_df, concatenate_files, concatenate_splits
 from ludwig.data.dataset.base import Dataset
 from ludwig.data.split import get_splitter, split_dataset
-from ludwig.encoders.registry import get_encoder_cls
-from ludwig.features.feature_registries import base_type_registry
-from ludwig.features.feature_utils import compute_feature_hash
+from ludwig.data.utils import set_fixed_split
+from ludwig.datasets import load_dataset_uris
+from ludwig.features.feature_registries import get_base_type_registry
+from ludwig.models.embedder import create_embed_batch_size_evaluator, create_embed_transform_fn
+from ludwig.schema.encoders.utils import get_encoder_cls
+from ludwig.types import FeatureConfigDict, PreprocessingConfigDict, TrainingSetMetadataDict
 from ludwig.utils import data_utils, strings_utils
 from ludwig.utils.backward_compatibility import upgrade_metadata
 from ludwig.utils.config_utils import merge_config_preprocessing_with_feature_specific_defaults
@@ -101,9 +107,10 @@ from ludwig.utils.data_utils import (
     STATA_FORMATS,
     TSV_FORMATS,
 )
+from ludwig.utils.dataframe_utils import is_dask_series_or_df
 from ludwig.utils.defaults import default_preprocessing_parameters, default_random_seed
 from ludwig.utils.fs_utils import file_lock, path_exists
-from ludwig.utils.misc_utils import get_from_registry, merge_dict, resolve_pointers
+from ludwig.utils.misc_utils import get_from_registry, merge_dict
 from ludwig.utils.types import DataFrame, Series
 
 REPARTITIONING_FEATURE_TYPES = {"image", "audio"}
@@ -1125,8 +1132,6 @@ def build_dataset(
     feature_configs = []
     feature_hashes = set()
     for feature in features:
-        if PROC_COLUMN not in feature:
-            feature[PROC_COLUMN] = compute_feature_hash(feature)
         if feature[PROC_COLUMN] not in feature_hashes:
             feature_configs.append(feature)
             feature_hashes.add(feature[PROC_COLUMN])
@@ -1219,7 +1224,15 @@ def build_dataset(
     # At this point, there should be no missing values left in the dataframe, unless
     # the DROP_ROW preprocessing option was selected, in which case we need to drop those
     # rows.
+    len_dataset_before_drop_rows = len(dataset)
     dataset = dataset.dropna()
+    len_dataset_after_drop_rows = len(dataset)
+
+    if len_dataset_before_drop_rows != len_dataset_after_drop_rows:
+        logger.warning(
+            f"Dropped a total of {len_dataset_before_drop_rows - len_dataset_after_drop_rows} rows out of "
+            f"{len_dataset_before_drop_rows} due to missing values"
+        )
 
     # NaNs introduced by outer join change dtype of dataset cols (upcast to float64), so we need to cast them back.
     col_name_to_dtype = {}
@@ -1236,7 +1249,66 @@ def build_dataset(
     # Remove partitions that are empty after removing NaNs
     dataset = backend.df_engine.remove_empty_partitions(dataset)
 
+    # Embed features with fixed encoders
+    dataset = embed_fixed_features(dataset, feature_configs, metadata, backend)
+
     return dataset, metadata
+
+
+def embed_fixed_features(
+    dataset: DataFrame, feature_configs: List[FeatureConfigDict], metadata: TrainingSetMetadataDict, backend: Backend
+) -> DataFrame:
+    """Transforms every input feature with cacheable encoder embeddings into its encoded form and updates
+    metadata."""
+    # Encode features in bulk at the end
+    features_to_encode = get_features_with_cacheable_fixed_embeddings(feature_configs, metadata)
+    if not features_to_encode:
+        return dataset
+
+    for feature in features_to_encode:
+        # Temporarily set to False to ensure proper encoding
+        metadata[feature[NAME]][PREPROCESSING]["cache_encoder_embeddings"] = False
+
+    batch_size = backend.tune_batch_size(create_embed_batch_size_evaluator(features_to_encode, metadata), len(dataset))
+    transform_fn = create_embed_transform_fn(features_to_encode, metadata)
+    results = backend.batch_transform(dataset, batch_size, transform_fn)
+
+    for feature in features_to_encode:
+        # Set metadata so we know to skip encoding the feature
+        metadata[feature[NAME]][PREPROCESSING]["cache_encoder_embeddings"] = True
+
+    return results
+
+
+def get_features_with_cacheable_fixed_embeddings(
+    feature_configs: List[FeatureConfigDict], metadata: TrainingSetMetadataDict
+) -> List[FeatureConfigDict]:
+    """Returns list of features with `cache_encoder_embeddings=True` set in the preprocessing config."""
+    features_to_encode = []
+    for feature_config in feature_configs:
+        # deal with encoders that have fixed preprocessing
+        if ENCODER in feature_config:
+            encoder_params = feature_config[ENCODER]
+            if TYPE in encoder_params:
+                preprocessing = metadata[feature_config[NAME]][PREPROCESSING]
+                if preprocessing.get("cache_encoder_embeddings"):
+                    # TODO(travis): passing in MODEL_ECD is a hack here that can be removed once we move to using
+                    # the config object everywhere in preprocessing. Then we won't need to do the lookup on the
+                    # encoder schema at all. This hack works for now because all encoders are supported by ECD, so
+                    # there is no chance of a GBM model using an encoder not supported by ECD, but this could change
+                    # in the future.
+                    encoder_class = get_encoder_cls(MODEL_ECD, feature_config[TYPE], encoder_params[TYPE])
+                    encoder = encoder_class.from_dict(encoder_params)
+                    if not encoder.can_cache_embeddings():
+                        raise ValueError(
+                            f"Set `cache_encoder_embeddings=True` for feature {feature_config[NAME]} with "
+                            f"encoder {encoder_params[TYPE]}, but encoder embeddings are not static."
+                        )
+
+                    # Convert to Ray Datasets, map batches to encode, then convert back to Dask
+                    features_to_encode.append(feature_config)
+
+    return features_to_encode
 
 
 def cast_columns(dataset_cols, features, backend) -> None:
@@ -1245,7 +1317,7 @@ def cast_columns(dataset_cols, features, backend) -> None:
         # todo figure out if additional parameters are needed
         #  for the cast_column function
         try:
-            dataset_cols[feature[COLUMN]] = get_from_registry(feature[TYPE], base_type_registry).cast_column(
+            dataset_cols[feature[COLUMN]] = get_from_registry(feature[TYPE], get_base_type_registry()).cast_column(
                 dataset_cols[feature[COLUMN]], backend
             )
         except KeyError as e:
@@ -1256,8 +1328,8 @@ def cast_columns(dataset_cols, features, backend) -> None:
 
 
 def merge_preprocessing(
-    feature_config: Dict[str, Any], global_preprocessing_parameters: Dict[str, Any]
-) -> Dict[str, Any]:
+    feature_config: FeatureConfigDict, global_preprocessing_parameters: PreprocessingConfigDict
+) -> FeatureConfigDict:
     if PREPROCESSING not in feature_config:
         return global_preprocessing_parameters[feature_config[TYPE]]
 
@@ -1266,11 +1338,11 @@ def merge_preprocessing(
 
 def build_preprocessing_parameters(
     dataset_cols: Dict[str, Series],
-    feature_configs: List[Dict[str, Any]],
-    global_preprocessing_parameters: Dict[str, Any],
+    feature_configs: List[FeatureConfigDict],
+    global_preprocessing_parameters: PreprocessingConfigDict,
     backend: Backend,
-    metadata: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    metadata: Optional[TrainingSetMetadataDict] = None,
+) -> PreprocessingConfigDict:
     if metadata is None:
         metadata = {}
 
@@ -1283,36 +1355,46 @@ def build_preprocessing_parameters(
             feature_name_to_preprocessing_parameters[feature_name] = metadata[feature_name][PREPROCESSING]
             continue
 
-        preprocessing_parameters = merge_preprocessing(feature_config, global_preprocessing_parameters)
-
-        # deal with encoders that have fixed preprocessing
-        if ENCODER in feature_config:
-            if TYPE in feature_config[ENCODER]:
-                encoder_class = get_encoder_cls(feature_config[TYPE], feature_config[ENCODER][TYPE])
-                if hasattr(encoder_class, "fixed_preprocessing_parameters"):
-                    encoder_fpp = encoder_class.fixed_preprocessing_parameters
-
-                    preprocessing_parameters = merge_dict(
-                        preprocessing_parameters, resolve_pointers(encoder_fpp, feature_config, "feature.")
-                    )  # TODO(Connor): Temporary fix, refactor this during preproc refactor
-
-        fill_value = precompute_fill_value(dataset_cols, feature_config, preprocessing_parameters, backend)
-
+        preprocessing_parameters = feature_config[PREPROCESSING]
+        missing_value_strategy = preprocessing_parameters["missing_value_strategy"]
+        fill_value = precompute_fill_value(
+            dataset_cols, feature_config, missing_value_strategy, preprocessing_parameters, backend
+        )
         if fill_value is not None:
             preprocessing_parameters.update({"computed_fill_value": fill_value})
+
+        # Handle outlier replacement
+        outlier_strategy = preprocessing_parameters.get("outlier_strategy")
+        if outlier_strategy is not None:
+            if outlier_strategy != missing_value_strategy:
+                outlier_fill_value = precompute_fill_value(
+                    dataset_cols, feature_config, outlier_strategy, preprocessing_parameters, backend
+                )
+            else:
+                # Use fill value from missing_value_strategy to avoid redundant computation
+                outlier_fill_value = fill_value
+
+            if outlier_fill_value is not None:
+                preprocessing_parameters.update({"computed_outlier_fill_value": outlier_fill_value})
 
         feature_name_to_preprocessing_parameters[feature_name] = preprocessing_parameters
 
     return feature_name_to_preprocessing_parameters
 
 
+def is_input_feature(feature_config: FeatureConfigDict) -> bool:
+    """Utility function to check for the presence of encoder in the feature config to determine if the feature is
+    an input feature or output feature."""
+    return ENCODER in feature_config
+
+
 def build_metadata(
-    metadata: Dict[str, Any],
-    feature_name_to_preprocessing_parameters: Dict[str, Any],
+    metadata: TrainingSetMetadataDict,
+    feature_name_to_preprocessing_parameters: Dict[str, PreprocessingConfigDict],
     dataset_cols: Dict[str, Series],
-    feature_configs: List[Dict[str, Any]],
+    feature_configs: List[FeatureConfigDict],
     backend: Backend,
-) -> Dict[str, Any]:
+) -> TrainingSetMetadataDict:
     for feature_config in feature_configs:
         feature_name = feature_config[NAME]
         if feature_name in metadata:
@@ -1321,8 +1403,8 @@ def build_metadata(
         preprocessing_parameters = feature_name_to_preprocessing_parameters[feature_name]
 
         column = dataset_cols[feature_config[COLUMN]]
-        metadata[feature_name] = get_from_registry(feature_config[TYPE], base_type_registry).get_feature_meta(
-            column, preprocessing_parameters, backend
+        metadata[feature_name] = get_from_registry(feature_config[TYPE], get_base_type_registry()).get_feature_meta(
+            column, preprocessing_parameters, backend, is_input_feature(feature_config)
         )
 
         metadata[feature_name][PREPROCESSING] = preprocessing_parameters
@@ -1357,7 +1439,12 @@ def build_data(
         # Need to run this again here as cast_columns may have introduced new missing values
         handle_missing_values(input_cols, feature_config, preprocessing_parameters, backend)
 
-        get_from_registry(feature_config[TYPE], base_type_registry).add_feature_data(
+        # For features that support it, we perform outlier removal here using metadata computed on the full dataset
+        handle_outliers(
+            input_cols, feature_config, preprocessing_parameters, training_set_metadata[feature_config[NAME]], backend
+        )
+
+        get_from_registry(feature_config[TYPE], get_base_type_registry()).add_feature_data(
             feature_config,
             input_cols,
             proc_cols,
@@ -1382,12 +1469,6 @@ def balance_data(dataset_df: DataFrame, output_features: List[Dict], preprocessi
 
     Returns: An over-sampled or under-sampled training dataset.
     """
-
-    if len(output_features) != 1:
-        raise ValueError("Class balancing is only available for datasets with a single output feature")
-    if output_features[0][TYPE] != BINARY:
-        raise ValueError("Class balancing is only supported for binary output types")
-
     target = output_features[0][PROC_COLUMN]
 
     if backend.df_engine.partitioned:
@@ -1398,12 +1479,6 @@ def balance_data(dataset_df: DataFrame, output_features: List[Dict], preprocessi
         minority_class = dataset_df[target].value_counts().idxmin()
     majority_df = dataset_df[dataset_df[target] == majority_class]
     minority_df = dataset_df[dataset_df[target] == minority_class]
-
-    if preprocessing_parameters["oversample_minority"] and preprocessing_parameters["undersample_majority"]:
-        raise ValueError(
-            "Cannot balance data if both oversampling an undersampling are specified in the config. "
-            "Must specify only one method"
-        )
 
     if preprocessing_parameters["oversample_minority"]:
         sample_fraction = (len(majority_df) * preprocessing_parameters["oversample_minority"]) / len(minority_df)
@@ -1417,17 +1492,24 @@ def balance_data(dataset_df: DataFrame, output_features: List[Dict], preprocessi
     return balanced_df
 
 
-def precompute_fill_value(dataset_cols, feature, preprocessing_parameters, backend):
+def precompute_fill_value(
+    dataset_cols, feature, missing_value_strategy: str, preprocessing_parameters: PreprocessingConfigDict, backend
+):
     """Precomputes the fill value for a feature.
 
     NOTE: this is called before NaNs are removed from the dataset. Modifications here must handle NaNs gracefully.
     NOTE: this is called before columns are cast. Modifications here must handle dtype conversion gracefully.
     """
-    missing_value_strategy = preprocessing_parameters["missing_value_strategy"]
     if missing_value_strategy == FILL_WITH_CONST:
         return preprocessing_parameters["fill_value"]
     elif missing_value_strategy == FILL_WITH_MODE:
-        return dataset_cols[feature[COLUMN]].value_counts().index[0]
+        # Requires separate handling if Dask since Dask has lazy evaluation
+        # Otherwise, dask returns a Dask index structure instead of a value to use as a fill value
+        return (
+            dataset_cols[feature[COLUMN]].value_counts().index.compute()[0]
+            if is_dask_series_or_df(dataset_cols[feature[COLUMN]], backend)
+            else dataset_cols[feature[COLUMN]].value_counts().index[0]
+        )
     elif missing_value_strategy == FILL_WITH_MEAN:
         if feature[TYPE] != NUMBER:
             raise ValueError(
@@ -1465,12 +1547,34 @@ def precompute_fill_value(dataset_cols, feature, preprocessing_parameters, backe
     return None
 
 
-def handle_missing_values(dataset_cols, feature, preprocessing_parameters, backend):
+@DeveloperAPI
+def handle_missing_values(dataset_cols, feature, preprocessing_parameters: PreprocessingConfigDict, backend):
     missing_value_strategy = preprocessing_parameters["missing_value_strategy"]
-
-    # Check for the precomputed fill value in the metadata
     computed_fill_value = preprocessing_parameters.get("computed_fill_value")
+    _handle_missing_values(dataset_cols, feature, missing_value_strategy, computed_fill_value, backend)
 
+
+@DeveloperAPI
+def handle_outliers(dataset_cols, feature, preprocessing_parameters: PreprocessingConfigDict, metadata, backend):
+    outlier_strategy = preprocessing_parameters.get("outlier_strategy")
+    if outlier_strategy is None:
+        return
+
+    outlier_threshold = preprocessing_parameters["outlier_threshold"]
+    computed_fill_value = preprocessing_parameters.get("computed_outlier_fill_value")
+
+    # Identify all outliers and set them to NA so they can be removed
+    series = dataset_cols[feature[COLUMN]]
+    dataset_cols[feature[COLUMN]] = series.mask(
+        series.sub(metadata["mean"]).div(metadata["std"]).abs().gt(outlier_threshold)
+    )
+
+    _handle_missing_values(dataset_cols, feature, outlier_strategy, computed_fill_value, backend)
+
+
+def _handle_missing_values(
+    dataset_cols, feature, missing_value_strategy: str, computed_fill_value: Optional[float], backend
+):
     if (
         missing_value_strategy in {FILL_WITH_CONST, FILL_WITH_MODE, FILL_WITH_MEAN, FILL_WITH_FALSE}
         and computed_fill_value is not None
@@ -1495,7 +1599,16 @@ def handle_missing_values(dataset_cols, feature, preprocessing_parameters, backe
         # Here we only drop from this series, but after preprocessing we'll do a second
         # round of dropping NA values from the entire output dataframe, which will
         # result in the removal of the rows.
+        len_before_dropped_rows = len(dataset_cols[feature[COLUMN]])
         dataset_cols[feature[COLUMN]] = dataset_cols[feature[COLUMN]].dropna()
+        len_after_dropped_rows = len(dataset_cols[feature[COLUMN]])
+
+        if len_before_dropped_rows != len_after_dropped_rows:
+            logger.warning(
+                f"DROP_ROW missing value strategy applied. Dropped {len_before_dropped_rows - len_after_dropped_rows} "
+                f"samples out of {len_before_dropped_rows} from column {feature[COLUMN]}. The rows containing these "
+                f"samples will ultimately be dropped from the dataset."
+            )
     else:
         raise ValueError(f"Invalid missing value strategy {missing_value_strategy}")
 
@@ -1521,7 +1634,7 @@ def load_hdf5(hdf5_file_path, preprocessing_params, backend, split_data=True, sh
     return training_set, test_set, validation_set
 
 
-def load_metadata(metadata_file_path: str) -> Dict[str, Any]:
+def load_metadata(metadata_file_path: str) -> TrainingSetMetadataDict:
     logger.info(f"Loading metadata from: {metadata_file_path}")
     training_set_metadata = data_utils.load_json(metadata_file_path)
     # TODO(travis): decouple config from training_set_metadata so we don't need to
@@ -1543,12 +1656,17 @@ def preprocess_for_training(
     backend=LOCAL_BACKEND,
     random_seed=default_random_seed,
     callbacks=None,
-) -> Tuple[Dataset, Dataset, Dataset, Dict[str, Any]]:
+) -> Tuple[Dataset, Dataset, Dataset, TrainingSetMetadataDict]:
     """Returns training, val and test datasets with training set metadata."""
 
     # sanity check to make sure some data source is provided
     if dataset is None and training_set is None:
         raise ValueError("No training data is provided!")
+
+    # preload ludwig datasets
+    dataset, training_set, validation_set, test_set = load_dataset_uris(
+        dataset, training_set, validation_set, test_set, backend
+    )
 
     # determine data format if not provided or auto
     if not data_format or data_format == "auto":
@@ -1587,14 +1705,14 @@ def preprocess_for_training(
 
         if data_format in CACHEABLE_FORMATS:
             with backend.storage.cache.use_credentials():
+                # cache.get() returns valid indicating if the checksum for the current config
+                # is equal to that from the cached training set metadata, as well as the paths to the
+                # cached training set metadata, training set, validation_set, test set
                 cache_results = cache.get()
                 if cache_results is not None:
                     valid, *cache_values = cache_results
                     if valid:
-                        logger.info(
-                            "Found cached dataset and meta.json with the same filename "
-                            "of the dataset, using them instead"
-                        )
+                        logger.info(_get_cache_hit_message(cache))
                         training_set_metadata, training_set, test_set, validation_set = cache_values
                         config["data_hdf5_fp"] = training_set
                         data_format = backend.cache.data_format
@@ -1603,7 +1721,7 @@ def preprocess_for_training(
                     else:
                         logger.info(
                             "Found cached dataset and meta.json with the same filename "
-                            "of the dataset, but checksum don't match, "
+                            "of the dataset, but checksums don't match, "
                             "if saving of processed input is not skipped "
                             "they will be overridden"
                         )
@@ -1762,20 +1880,8 @@ def _preprocess_file_for_training(
         concatenated_df = concatenate_files(training_set, validation_set, test_set, read_fn, backend)
         training_set_metadata[SRC] = training_set
 
-        # Data is pre-split, so we override whatever split policy the user specified
-        if preprocessing_params["split"]:
-            warnings.warn(
-                'Preprocessing "split" section provided, but pre-split dataset given as input. '
-                "Ignoring split configuration."
-            )
-
-        preprocessing_params = {
-            **preprocessing_params,
-            "split": {
-                "type": "fixed",
-                "column": SPLIT,
-            },
-        }
+        # Data is pre-split.
+        preprocessing_params = set_fixed_split(preprocessing_params)
 
         data, training_set_metadata = build_dataset(
             concatenated_df,
@@ -1791,9 +1897,6 @@ def _preprocess_file_for_training(
     else:
         raise ValueError("either data or data_train have to be not None")
 
-    # print("backend", backend)
-    # print("data", backend.df_engine.compute(data))
-
     logger.debug("split train-val-test")
     training_data, validation_data, test_data = split_dataset(data, preprocessing_params, backend, random_seed)
 
@@ -1801,7 +1904,13 @@ def _preprocess_file_for_training(
         logger.debug("writing split file")
         splits_df = concatenate_splits(training_data, validation_data, test_data, backend)
         split_fp = get_split_path(dataset or training_set)
-        backend.df_engine.to_parquet(splits_df, split_fp, index=True)
+        try:
+            backend.df_engine.to_parquet(splits_df, split_fp, index=True)
+        except Exception as e:
+            logger.warning(
+                f"Encountered error: '{e}' while writing data to parquet during saving preprocessed data. "
+                "Skipping saving processed data."
+            )
 
     logger.info("Building dataset: DONE")
     if preprocessing_params["oversample_minority"] or preprocessing_params["undersample_majority"]:
@@ -1836,20 +1945,8 @@ def _preprocess_df_for_training(
         logger.info("Using training dataframe")
         dataset = concatenate_df(training_set, validation_set, test_set, backend)
 
-        # Data is pre-split, so we override whatever split policy the user specified
-        if preprocessing_params["split"]:
-            warnings.warn(
-                'Preprocessing "split" section provided, but pre-split dataset given as input. '
-                "Ignoring split configuration."
-            )
-
-        preprocessing_params = {
-            **preprocessing_params,
-            "split": {
-                "type": "fixed",
-                "column": SPLIT,
-            },
-        }
+        # Data is pre-split.
+        preprocessing_params = set_fixed_split(preprocessing_params)
 
     logger.info("Building dataset (it may take a while)")
 
@@ -1906,6 +2003,9 @@ def preprocess_for_prediction(
     if isinstance(dataset, Dataset):
         return dataset, training_set_metadata
 
+    # preload ludwig datasets
+    dataset, _, _, _ = load_dataset_uris(dataset, None, None, None, backend)
+
     # determine data format if not provided or auto
     if not data_format or data_format == "auto":
         data_format = figure_data_format(dataset)
@@ -1951,10 +2051,7 @@ def preprocess_for_prediction(
             if cache_results is not None:
                 valid, *cache_values = cache_results
                 if valid:
-                    logger.info(
-                        "Found cached dataset and meta.json with the same filename "
-                        "of the input file, using them instead"
-                    )
+                    logger.info(_get_cache_hit_message(cache))
                     training_set_metadata, training_set, test_set, validation_set = cache_values
                     config["data_hdf5_fp"] = training_set
                     data_format = backend.cache.data_format
@@ -2008,3 +2105,14 @@ def preprocess_for_prediction(
         )
 
     return dataset, training_set_metadata
+
+
+def _get_cache_hit_message(cache: DatasetCache) -> str:
+    return (
+        "Found cached dataset and meta.json with the same filename of the dataset.\n"
+        "Using cached values instead of preprocessing the dataset again.\n"
+        f"- Cached training set metadata path: {cache.get_cached_obj_path(META)}\n"
+        f"- Cached training set path: {cache.get_cached_obj_path(TRAINING)}\n"
+        f"- Cached validation set path: {cache.get_cached_obj_path(VALIDATION)}\n"
+        f"- Cached test set path: {cache.get_cached_obj_path(TEST)}"
+    )

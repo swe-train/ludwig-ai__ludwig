@@ -168,7 +168,7 @@ or take a look at end-to-end [Examples](https://ludwig-ai.github.io/ludwig-docs/
 
 ## Step 1: Install
 
-Install from PyPi. Be aware that Ludwig requires Python 3.7+.
+Install from PyPi. Be aware that Ludwig requires Python 3.8+.
 
 ```shell
 pip install ludwig
@@ -401,6 +401,16 @@ Learn more about [how Ludwig works](https://ludwig-ai.github.io/ludwig-docs/late
 
 If you are interested in contributing, have questions, comments, or thoughts to share, or if you just want to be in the
 know, please consider [joining the Ludwig Slack](https://join.slack.com/t/ludwig-ai/shared_invite/zt-mrxo87w6-DlX5~73T2B4v_g6jj0pJcQ) and follow us on [Twitter](https://twitter.com/ludwig_ai)!
+
+# Join the community to build Ludwig with us
+
+Ludwig is an actively managed open-source project that relies on contributions from folks just like
+you. Consider joining the active group of Ludwig contributors to make Ludwig an even
+more accessible and feature rich framework for everyone to use!
+
+<a href="https://github.com/ludwig-ai/ludwig/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=ludwig-ai/ludwig" />
+</a><br/>
 
 # Getting Involved
 

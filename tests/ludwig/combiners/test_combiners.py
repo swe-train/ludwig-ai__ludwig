@@ -16,7 +16,7 @@ from ludwig.combiners.combiners import (
     TransformerCombiner,
 )
 from ludwig.constants import CATEGORY, TYPE
-from ludwig.encoders.registry import sequence_encoder_registry
+from ludwig.encoders.registry import get_sequence_encoder_registry
 from ludwig.schema.combiners.comparator import ComparatorCombinerConfig
 from ludwig.schema.combiners.concat import ConcatCombinerConfig
 from ludwig.schema.combiners.sequence import SequenceCombinerConfig
@@ -184,11 +184,16 @@ def encoder_comparator_outputs():
 
 
 # test for simple concatenation combiner
+@pytest.mark.parametrize("norm", [None, "batch", "layer", "ghost"])
 @pytest.mark.parametrize("number_inputs", [None, 1])
 @pytest.mark.parametrize("flatten_inputs", [True, False])
 @pytest.mark.parametrize("fc_layer", [None, [{"output_size": OUTPUT_SIZE}, {"output_size": OUTPUT_SIZE}]])
 def test_concat_combiner(
-    encoder_outputs: Tuple, fc_layer: Optional[List[Dict]], flatten_inputs: bool, number_inputs: Optional[int]
+    encoder_outputs: Tuple,
+    fc_layer: Optional[List[Dict]],
+    flatten_inputs: bool,
+    number_inputs: Optional[int],
+    norm: str,
 ) -> None:
     # make repeatable
     set_random_seed(RANDOM_SEED)
@@ -213,7 +218,8 @@ def test_concat_combiner(
 
     # setup combiner to test with pseudo input features
     combiner = ConcatCombiner(
-        input_features_dict, config=load_config(ConcatCombinerConfig, fc_layers=fc_layer, flatten_inputs=flatten_inputs)
+        input_features_dict,
+        config=load_config(ConcatCombinerConfig, fc_layers=fc_layer, flatten_inputs=flatten_inputs, norm=norm),
     ).to(DEVICE)
 
     # confirm correctness of input_shape property
@@ -277,7 +283,7 @@ def test_sequence_concat_combiner(
 
 # test for sequence combiner
 @pytest.mark.parametrize("reduce_output", [None, "sum"])
-@pytest.mark.parametrize("encoder", sequence_encoder_registry)
+@pytest.mark.parametrize("encoder", get_sequence_encoder_registry())
 @pytest.mark.parametrize("main_sequence_feature", [None, "feature_3"])
 def test_sequence_combiner(
     encoder_outputs: Tuple, main_sequence_feature: Optional[str], encoder: str, reduce_output: Optional[str]

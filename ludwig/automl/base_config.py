@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Set, Union
 import dask.dataframe as dd
 import numpy as np
 import pandas as pd
+import yaml
 from dataclasses_json import dataclass_json, LetterCase
 
 from ludwig.api_annotations import DeveloperAPI
@@ -25,8 +26,10 @@ from ludwig.backend import Backend
 from ludwig.constants import (
     COLUMN,
     COMBINER,
+    ENCODER,
     EXECUTOR,
     HYPEROPT,
+    INPUT_FEATURES,
     PREPROCESSING,
     SCHEDULER,
     SEARCH_ALG,
@@ -34,6 +37,9 @@ from ludwig.constants import (
     TEXT,
     TYPE,
 )
+from ludwig.profiling import dataset_profile_pb2
+from ludwig.profiling.dataset_profile import get_dataset_profile_proto, get_dataset_profile_view
+from ludwig.types import ModelConfigDict
 from ludwig.utils.automl.data_source import DataSource, wrap_data_source
 from ludwig.utils.automl.field_info import FieldConfig, FieldInfo, FieldMetadata
 from ludwig.utils.automl.type_inference import infer_type, should_exclude
@@ -93,7 +99,13 @@ def allocate_experiment_resources(resources: Resources) -> dict:
     return experiment_resources
 
 
-def _get_hyperopt_config(experiment_resources: Dict[str, Any], time_limit_s: Union[int, float], random_seed: int):
+def get_resource_aware_hyperopt_config(
+    experiment_resources: Dict[str, Any], time_limit_s: Union[int, float], random_seed: int
+) -> Dict[str, Any]:
+    """Returns a Ludwig config with the hyperopt section populated with appropriate parameters.
+
+    Hyperopt parameters are intended to be appropriate for the given resources and time limit.
+    """
     executor = experiment_resources
     executor.update({"time_budget_s": time_limit_s})
     if time_limit_s is not None:
@@ -118,7 +130,35 @@ def _get_stratify_split_config(field_meta: FieldMetadata) -> dict:
     }
 
 
-def _create_default_config(
+def get_default_automl_hyperopt() -> Dict[str, Any]:
+    """Returns general, default settings for hyperopt.
+
+    For example:
+    - We set a random_state_seed for sample sequence repeatability
+    - We use an increased reduction_factor to get more pruning/exploration.
+
+    TODO: If settings seem reasonable, consider building this into the hyperopt schema, directly.
+    """
+    return yaml.safe_load(
+        """
+  search_alg:
+    type: hyperopt
+  executor:
+    type: ray
+    num_samples: 10
+    time_budget_s: 3600
+    scheduler:
+      type: async_hyperband
+      time_attr: time_total_s
+      max_t: 3600
+      grace_period: 72
+      reduction_factor: 5
+"""
+    )
+
+
+def create_default_config(
+    features_config: ModelConfigDict,
     dataset_info: DatasetInfo,
     target_name: Union[str, List[str]],
     time_limit_s: Union[int, float],
@@ -138,7 +178,7 @@ def _create_default_config(
       trial
 
     # Inputs
-    :param dataset: (str) filepath to dataset.
+    :param dataset_info: (str) filepath Dataset Info object.
     :param target_name: (str, List[str]) name of target feature
     :param time_limit_s: (int, float) total time allocated to auto_train. acts
                                     as the stopping parameter
@@ -147,22 +187,28 @@ def _create_default_config(
                         hyperparameter search sampling, as well as data splitting,
                         parameter initialization and training set shuffling
     :param imbalance_threshold: (float) maximum imbalance ratio (minority / majority) to perform stratified sampling
+    :param backend: (Backend) backend to use for training.
 
     # Return
     :return: (dict) dictionaries contain auto train config files for all available
     combiner types
     """
     base_automl_config = load_yaml(BASE_AUTOML_CONFIG)
+    base_automl_config.update(features_config)
 
+    targets = convert_targets(target_name)
+    features_metadata = get_field_metadata(dataset_info.fields, dataset_info.row_count, targets)
+
+    # Handle expensive features for CPU
     resources = backend.get_available_resources()
-
-    input_and_output_feature_config, features_metadata = get_features_config(
-        dataset_info.fields, dataset_info.row_count, resources, target_name
-    )
-    base_automl_config.update(input_and_output_feature_config)
+    for ifeature in base_automl_config[INPUT_FEATURES]:
+        if resources.gpus == 0:
+            if ifeature[TYPE] == TEXT:
+                # When no GPUs are available, default to the embed encoder, which is fast enough for CPU
+                ifeature[ENCODER] = {"type": "embed"}
 
     # create set of all feature types appearing in the dataset
-    feature_types = [[feat[TYPE] for feat in features] for features in input_and_output_feature_config.values()]
+    feature_types = [[feat[TYPE] for feat in features] for features in features_config.values()]
     feature_types = set(sum(feature_types, []))
 
     model_configs = {}
@@ -170,7 +216,7 @@ def _create_default_config(
     # update hyperopt config
     experiment_resources = allocate_experiment_resources(resources)
     base_automl_config = merge_dict(
-        base_automl_config, _get_hyperopt_config(experiment_resources, time_limit_s, random_seed)
+        base_automl_config, get_resource_aware_hyperopt_config(experiment_resources, time_limit_s, random_seed)
     )
 
     # add preprocessing section if single output feature is imbalanced
@@ -198,11 +244,11 @@ def _create_default_config(
         combiner_config = load_yaml(default_config)
         model_configs[COMBINER][combiner_type] = combiner_config
 
-    return model_configs, features_metadata
+    return model_configs
 
 
 # Read in the score and configuration of a reference model trained by Ludwig for each dataset in a list.
-def _get_reference_configs() -> dict:
+def get_reference_configs() -> dict:
     reference_configs = load_yaml(REFERENCE_CONFIGS)
     return reference_configs
 
@@ -241,6 +287,11 @@ def is_field_boolean(source: DataSource, field: str) -> bool:
             return False
         return True
     return False
+
+
+@DeveloperAPI
+def get_dataset_profile_from_source(source: DataSource) -> dataset_profile_pb2.DatasetProfile:
+    return get_dataset_profile_proto(get_dataset_profile_view(source.df))
 
 
 @DeveloperAPI
@@ -292,7 +343,6 @@ def get_dataset_info_from_source(source: DataSource) -> DatasetInfo:
 def get_features_config(
     fields: List[FieldInfo],
     row_count: int,
-    resources: Resources,
     target_name: Union[str, List[str]] = None,
 ) -> dict:
     """Constructs FieldInfo objects for each feature in dataset. These objects are used for downstream type
@@ -306,15 +356,18 @@ def get_features_config(
     # Return
     :return: (dict) section of auto_train config for input_features and output_features
     """
+    targets = convert_targets(target_name)
+    metadata = get_field_metadata(fields, row_count, targets)
+    return get_config_from_metadata(metadata, targets)
+
+
+def convert_targets(target_name: Union[str, List[str]] = None) -> Set[str]:
     targets = target_name
     if isinstance(targets, str):
         targets = [targets]
     if targets is None:
         targets = []
-    targets = set(targets)
-
-    metadata = get_field_metadata(fields, row_count, resources, targets)
-    return get_config_from_metadata(metadata, targets), metadata
+    return set(targets)
 
 
 def get_config_from_metadata(metadata: List[FieldMetadata], targets: Set[str] = None) -> dict:
@@ -342,9 +395,7 @@ def get_config_from_metadata(metadata: List[FieldMetadata], targets: Set[str] = 
 
 
 @DeveloperAPI
-def get_field_metadata(
-    fields: List[FieldInfo], row_count: int, resources: Resources, targets: Set[str] = None
-) -> List[FieldMetadata]:
+def get_field_metadata(fields: List[FieldInfo], row_count: int, targets: Set[str] = None) -> List[FieldMetadata]:
     """Computes metadata for each field in dataset.
 
     # Inputs
@@ -357,6 +408,7 @@ def get_field_metadata(
     """
 
     metadata = []
+    column_count = len(fields)
     for idx, field in enumerate(fields):
         missing_value_percent = 1 - float(field.nonnull_values) / row_count
         dtype = infer_type(field, missing_value_percent, row_count)
@@ -368,22 +420,12 @@ def get_field_metadata(
                     column=field.name,
                     type=dtype,
                 ),
-                excluded=should_exclude(idx, field, dtype, row_count, targets),
+                excluded=should_exclude(idx, field, dtype, column_count, row_count, targets),
                 mode=infer_mode(field, targets),
                 missing_values=missing_value_percent,
                 imbalance_ratio=field.distinct_values_balance,
             )
         )
-
-    # Count of number of initial non-text input features in the config, -1 for output
-    input_count = sum(not meta.excluded and meta.mode == "input" and meta.config.type != TEXT for meta in metadata) - 1
-
-    # Exclude text fields if no GPUs are available
-    if resources.gpus == 0:
-        for meta in metadata:
-            if input_count > 2 and meta.config.type == TEXT:
-                # By default, exclude text inputs when there are other candidate inputs
-                meta.excluded = True
 
     return metadata
 

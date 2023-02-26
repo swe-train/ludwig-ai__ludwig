@@ -3,23 +3,19 @@ from typing import Dict
 
 from marshmallow_dataclass import dataclass
 
+from ludwig.api_annotations import DeveloperAPI
 from ludwig.constants import LOSS, TEST, TRAIN, VALIDATION
+from ludwig.modules import metric_modules  # noqa: Needed to ensure that the metric registry is populated.
+from ludwig.modules.metric_registry import get_metric_registry
 from ludwig.schema import utils as schema_utils
-from ludwig.schema.features.utils import output_config_registry
 from ludwig.schema.hyperopt.executor import ExecutorConfig, ExecutorDataclassField
 from ludwig.schema.hyperopt.search_algorithm import BaseSearchAlgorithmConfig, SearchAlgorithmDataclassField
 
 
+@DeveloperAPI
 @dataclass
 class HyperoptConfig(schema_utils.BaseMarshmallowConfig, ABC):
     """Basic hyperopt settings."""
-
-    def get_hyperopt_metric_options():
-        all_metrics = []
-        for oftype in output_config_registry:
-            ofcls = output_config_registry[oftype]
-            all_metrics += ofcls.get_output_metric_functions().keys()
-        return all_metrics
 
     output_feature: str = "combined"  # TODO: make more restrictive
 
@@ -34,7 +30,7 @@ class HyperoptConfig(schema_utils.BaseMarshmallowConfig, ABC):
     )
 
     metric: str = schema_utils.StringOptions(
-        options=get_hyperopt_metric_options(),
+        options=get_metric_registry().keys(),
         default=LOSS,
         allow_none=False,
         description=(
@@ -69,15 +65,26 @@ class HyperoptConfig(schema_utils.BaseMarshmallowConfig, ABC):
         )
     )
 
-    parameters: Dict = schema_utils.Dict()
+    parameters: Dict = schema_utils.Dict(allow_none=False)
 
 
+@DeveloperAPI
 def get_hyperopt_jsonschema():
     props = schema_utils.unload_jsonschema_from_marshmallow_class(HyperoptConfig)["properties"]
 
     return {
-        "type": "object",
+        "type": ["object", "null"],
         "properties": props,
         "title": "hyperopt_options",
         "description": "Settings for hyperopt",
     }
+
+
+@DeveloperAPI
+class HyperoptField(schema_utils.DictMarshmallowField):
+    def __init__(self):
+        super().__init__(HyperoptConfig, default_missing=True)
+
+    @staticmethod
+    def _jsonschema_type_mapping():
+        return get_hyperopt_jsonschema()

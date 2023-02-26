@@ -23,7 +23,7 @@ from torch.nn import Linear, ModuleList
 
 from ludwig.api_annotations import DeveloperAPI
 from ludwig.constants import BINARY, NUMBER
-from ludwig.encoders.registry import sequence_encoder_registry
+from ludwig.encoders.registry import get_sequence_encoder_registry
 from ludwig.features.base_feature import InputFeature
 from ludwig.modules.attention_modules import TransformerStack
 from ludwig.modules.embedding_modules import Embed
@@ -108,28 +108,27 @@ class ConcatCombiner(Combiner):
 
         # todo future: this may be redundant, check
         fc_layers = config.fc_layers
-        if fc_layers is None and config.num_fc_layers is not None:
+        if fc_layers is None:
             fc_layers = []
             for i in range(config.num_fc_layers):
                 fc_layers.append({"output_size": config.output_size})
-
         self.fc_layers = fc_layers
-        if self.fc_layers is not None:
-            logger.debug("  FCStack")
-            self.fc_stack = FCStack(
-                first_layer_input_size=self.concatenated_shape[-1],
-                layers=config.fc_layers,
-                num_layers=config.num_fc_layers,
-                default_output_size=config.output_size,
-                default_use_bias=config.use_bias,
-                default_weights_initializer=config.weights_initializer,
-                default_bias_initializer=config.bias_initializer,
-                default_norm=config.norm,
-                default_norm_params=config.norm_params,
-                default_activation=config.activation,
-                default_dropout=config.dropout,
-                residual=config.residual,
-            )
+
+        logger.debug("  FCStack")
+        self.fc_stack = FCStack(
+            first_layer_input_size=self.concatenated_shape[-1],
+            layers=config.fc_layers,
+            num_layers=config.num_fc_layers,
+            default_output_size=config.output_size,
+            default_use_bias=config.use_bias,
+            default_weights_initializer=config.weights_initializer,
+            default_bias_initializer=config.bias_initializer,
+            default_norm=config.norm,
+            default_norm_params=config.norm_params,
+            default_activation=config.activation,
+            default_dropout=config.dropout,
+            residual=config.residual,
+        )
 
         if input_features and len(input_features) == 1 and self.fc_layers is None:
             self.supports_masking = True
@@ -149,8 +148,7 @@ class ConcatCombiner(Combiner):
             hidden = list(encoder_outputs)[0]
 
         # ================ Fully Connected ================
-        if self.fc_stack is not None:
-            hidden = self.fc_stack(hidden)
+        hidden = self.fc_stack(hidden)
 
         return_data = {"combiner_output": hidden}
 
@@ -202,8 +200,6 @@ class SequenceConcatCombiner(Combiner):
             if len(self.input_features[k].output_shape) == 2:
                 seq_size = self.input_features[k].output_shape[0]
                 break
-        if not seq_size:
-            raise ValueError("At least one of the input features for SequenceConcatCombiner should be a sequence.")
 
         # collect the size of the last dimension for all input feature
         # encoder outputs
@@ -331,7 +327,7 @@ class SequenceCombiner(Combiner):
             f"combiner input shape {self.combiner.concatenated_shape}, " f"output shape {self.combiner.output_shape}"
         )
 
-        self.encoder_obj = get_from_registry(config.encoder.type, sequence_encoder_registry)(
+        self.encoder_obj = get_from_registry(config.encoder.type, get_sequence_encoder_registry())(
             should_embed=False,
             reduce_output=config.reduce_output,
             embedding_size=self.combiner.output_shape[1],
@@ -569,8 +565,6 @@ class TabTransformerCombiner(Combiner):
         self.name = "TabTransformerCombiner"
         logger.debug(f"Initializing {self.name}")
 
-        if config.reduce_output is None:
-            raise ValueError("TabTransformer requires the `reduce_output` " "parameter")
         self.reduce_output = config.reduce_output
         self.reduce_sequence = SequenceReducer(
             reduce_mode=config.reduce_output, max_sequence_length=len(input_features), encoding_size=config.hidden_size

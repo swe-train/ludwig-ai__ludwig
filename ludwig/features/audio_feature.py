@@ -15,7 +15,7 @@
 # ==============================================================================
 import logging
 import os
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -25,6 +25,7 @@ from ludwig.constants import AUDIO, AUDIO_FEATURE_KEYS, COLUMN, NAME, PREPROCESS
 from ludwig.features.base_feature import BaseFeatureMixin
 from ludwig.features.sequence_feature import SequenceInputFeature
 from ludwig.schema.features.audio_feature import AudioInputFeatureConfig
+from ludwig.types import FeatureMetadataDict, PreprocessingConfigDict, TrainingSetMetadataDict
 from ludwig.utils.audio_utils import (
     calculate_mean,
     calculate_var,
@@ -48,10 +49,9 @@ logger = logging.getLogger(__name__)
 
 
 class _AudioPreprocessing(torch.nn.Module):
-
     audio_feature_dict: Dict[str, Union[float, int, str]]
 
-    def __init__(self, metadata: Dict[str, Any]):
+    def __init__(self, metadata: TrainingSetMetadataDict):
         super().__init__()
         self.audio_feature_dict = {
             key: value
@@ -92,8 +92,10 @@ class AudioFeatureMixin(BaseFeatureMixin):
         return column
 
     @staticmethod
-    def get_feature_meta(column, preprocessing_parameters, backend):
-        first_audio_file_path = column.head(1)[0]
+    def get_feature_meta(
+        column, preprocessing_parameters: PreprocessingConfigDict, backend, is_input_feature: bool
+    ) -> FeatureMetadataDict:
+        first_audio_file_path = column.head(1).iloc[0]
         _, sampling_rate_in_hz = torchaudio.load(first_audio_file_path)
 
         feature_dim = AudioFeatureMixin._get_feature_dim(preprocessing_parameters, sampling_rate_in_hz)
@@ -109,7 +111,7 @@ class AudioFeatureMixin(BaseFeatureMixin):
         }
 
     @staticmethod
-    def _get_feature_dim(preprocessing_parameters, sampling_rate_in_hz):
+    def _get_feature_dim(preprocessing_parameters: PreprocessingConfigDict, sampling_rate_in_hz):
         feature_type = preprocessing_parameters[TYPE]
 
         if feature_type == "raw":
@@ -333,7 +335,13 @@ class AudioFeatureMixin(BaseFeatureMixin):
 
     @staticmethod
     def add_feature_data(
-        feature_config, input_df, proc_df, metadata, preprocessing_parameters, backend, skip_save_processed_input
+        feature_config,
+        input_df,
+        proc_df,
+        metadata,
+        preprocessing_parameters: PreprocessingConfigDict,
+        backend,
+        skip_save_processed_input,
     ):
         set_default_value(feature_config["preprocessing"], "in_memory", preprocessing_parameters["in_memory"])
 
@@ -389,13 +397,13 @@ class AudioFeatureMixin(BaseFeatureMixin):
                 backend,
             )
             proc_df[feature_config[PROC_COLUMN]] = audio_features
-        else:
-            backend.check_lazy_load_supported(feature_config)
 
         return proc_df
 
     @staticmethod
-    def _get_max_length_feature(preprocessing_parameters, sampling_rate_in_hz, audio_length_limit_in_s):
+    def _get_max_length_feature(
+        preprocessing_parameters: PreprocessingConfigDict, sampling_rate_in_hz, audio_length_limit_in_s
+    ):
         feature_type = preprocessing_parameters[TYPE]
         audio_length_limit_in_samp = audio_length_limit_in_s * sampling_rate_in_hz
 
@@ -452,7 +460,7 @@ class AudioInputFeature(AudioFeatureMixin, SequenceInputFeature):
         feature_config.encoder.should_embed = False
 
     @staticmethod
-    def create_preproc_module(metadata: Dict[str, Any]) -> torch.nn.Module:
+    def create_preproc_module(metadata: TrainingSetMetadataDict) -> torch.nn.Module:
         return _AudioPreprocessing(metadata)
 
     @staticmethod

@@ -42,6 +42,9 @@ INFER_IMAGE_MAX_WIDTH = "infer_image_max_width"
 INFER_IMAGE_SAMPLE_SIZE = "infer_image_sample_size"
 NUM_CLASSES = "num_classes"
 NUM_CHANNELS = "num_channels"
+REQUIRES_EQUAL_DIMENSIONS = "requires_equal_dimensions"
+USE_PRETRAINED = "use_pretrained"
+TRAINABLE = "trainable"
 CLASS_WEIGHTS = "class_weights"
 LOSS = "loss"
 ROC_AUC = "roc_auc"
@@ -67,6 +70,9 @@ R2 = "r2"
 EDIT_DISTANCE = "edit_distance"
 PERPLEXITY = "perplexity"
 JACCARD = "jaccard"
+PRECISION = "precision"
+RECALL = "recall"
+SPECIFICITY = "specificity"
 PREDICTIONS = "predictions"
 TOP_K = "top_k"
 TOP_K_PREDICTIONS = "top_k_predictions"
@@ -94,7 +100,6 @@ MISSING_VALUE_STRATEGY = "missing_value_strategy"
 MISSING_VALUE_STRATEGY_OPTIONS = [
     FILL_WITH_CONST,
     FILL_WITH_MODE,
-    FILL_WITH_MEAN,
     BFILL,
     FFILL,
     DROP_ROW,
@@ -104,8 +109,13 @@ CROP_OR_PAD = "crop_or_pad"
 INTERPOLATE = "interpolate"
 RESIZE_METHODS = [CROP_OR_PAD, INTERPOLATE]
 
+# Special symbols for text.
+STOP_SYMBOL = "<EOS>"
+START_SYMBOL = "<SOS>"
+PADDING_SYMBOL = "<PAD>"
+UNKNOWN_SYMBOL = "<UNK>"
+
 TRAINER = "trainer"
-LIGHTGBM_TRAINER = "lightgbm_trainer"
 OPTIMIZER = "optimizer"
 METRIC = "metric"
 PREDICTION = "prediction"
@@ -114,6 +124,7 @@ HIDDEN = "hidden"
 LAST_HIDDEN = "last_hidden"
 ENCODER_OUTPUT_STATE = "encoder_output_state"
 PROJECTION_INPUT = "projection_input"
+LEARNING_RATE_SCHEDULER = "learning_rate_scheduler"
 
 RANDOM = "random"
 SUM = "sum"
@@ -159,6 +170,7 @@ TYPE = "type"
 ACTIVE = "active"
 
 RAY = "ray"
+IN_MEMORY = "in_memory"
 
 PROC_COLUMN = "proc_column"
 
@@ -173,10 +185,13 @@ EARLY_STOP = "early_stop"
 EPOCHS = "epochs"
 BATCH_SIZE = "batch_size"
 EVAL_BATCH_SIZE = "eval_batch_size"
-DEFAULT_BATCH_SIZE = 128
-MAX_POSSIBLE_BATCH_SIZE = (
-    1099511627776  # 2^40. Used for `max_batch_size` config param. Not a hard constraint for `batch_size` config param.
-)
+DEFAULT_BATCH_SIZE = "auto"
+# 2^40. Used for `max_batch_size` config param. Not a hard constraint for `batch_size` config param.
+MAX_POSSIBLE_BATCH_SIZE = 1099511627776
+# min batch size. Used as a floor for batch size tuning. Not a hard constraint for `batch_size` config params.
+MIN_POSSIBLE_BATCH_SIZE = 2
+# max batch size for dataset is 20% of dataset size
+MAX_BATCH_SIZE_DATASET_FRACTION = 0.2
 LEARNING_RATE = "learning_rate"
 INPUT_SIZE = "input_size"
 USE_BIAS = "use_bias"
@@ -198,6 +213,8 @@ COMBINER = "combiner"
 
 ENCODER = "encoder"
 DECODER = "decoder"
+
+TRAINABLE = "trainable"
 
 DEFAULTS = "defaults"
 DEFAULT = "default"
@@ -238,6 +255,7 @@ MODEL_TYPE = "model_type"
 MODEL_ECD = "ecd"
 MODEL_GBM = "gbm"
 DASK_MODULE_NAME = "dask.dataframe"
+LUDWIG_VERSION = "ludwig_version"
 
 PREPROCESSOR = "preprocessor"
 PREDICTOR = "predictor"
@@ -251,9 +269,13 @@ CACHE = "cache"
 # retrieve torch ops for the tagged code blocks/functions.
 LUDWIG_TAG = "[ludwig]"
 
-
 # Retry constants
 TRIES = 5
 DELAY = 1
 BACKOFF = 2
 JITTER = (0, 1)
+
+# image support constants
+IMAGENET1K = "imagenet1k"
+
+AUGMENTATION = "augmentation"

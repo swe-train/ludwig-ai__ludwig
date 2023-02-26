@@ -1,23 +1,25 @@
 from typing import List
 
-from marshmallow_dataclass import dataclass
-
+from ludwig.api_annotations import DeveloperAPI
 from ludwig.constants import SET
 from ludwig.schema import utils as schema_utils
 from ludwig.schema.encoders.base import BaseEncoderConfig
 from ludwig.schema.encoders.utils import register_encoder_config
-from ludwig.schema.metadata.encoder_metadata import ENCODER_METADATA
+from ludwig.schema.metadata import ENCODER_METADATA
+from ludwig.schema.utils import ludwig_dataclass
 
 
+@DeveloperAPI
 @register_encoder_config("embed", SET)
-@dataclass(repr=False)
+@ludwig_dataclass
 class SetSparseEncoderConfig(BaseEncoderConfig):
+    @staticmethod
+    def module_name():
+        return "SetSparseEncoder"
 
-    type: str = schema_utils.StringOptions(
-        ["embed"],
-        default="embed",
-        allow_none=False,
-        description="Type of encoder.",
+    type: str = schema_utils.ProtectedString(
+        "embed",
+        description=ENCODER_METADATA["SetSparseEncoder"]["type"].long_description,
     )
 
     dropout: float = schema_utils.FloatRange(
@@ -91,6 +93,7 @@ class SetSparseEncoderConfig(BaseEncoderConfig):
 
     pretrained_embeddings: str = schema_utils.String(
         default=None,
+        allow_none=True,
         description="By default dense embeddings are initialized randomly, but this parameter allows to specify a "
         "path to a file containing embeddings in the GloVe format. When the file containing the "
         "embeddings is loaded, only the embeddings with labels present in the vocabulary are kept, "
@@ -111,6 +114,7 @@ class SetSparseEncoderConfig(BaseEncoderConfig):
     norm: str = schema_utils.StringOptions(
         ["batch", "layer"],
         default=None,
+        allow_none=True,
         description="The default norm that will be used for each layer.",
         parameter_metadata=ENCODER_METADATA["SetSparseEncoder"]["norm"],
     )

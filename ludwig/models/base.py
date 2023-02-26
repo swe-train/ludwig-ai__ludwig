@@ -8,11 +8,11 @@ import torch
 
 from ludwig.combiners.combiners import Combiner
 from ludwig.constants import COMBINED, LOSS, NAME
-from ludwig.features.base_feature import InputFeature, OutputFeature
-from ludwig.features.feature_registries import input_type_registry, output_type_registry
+from ludwig.encoders.base import Encoder
+from ludwig.features.base_feature import create_passthrough_input_feature, InputFeature, OutputFeature
+from ludwig.features.feature_registries import get_input_type_registry, get_output_type_registry
 from ludwig.features.feature_utils import LudwigFeatureDict
-from ludwig.schema.features.base import BaseInputFeatureConfig, BaseOutputFeatureConfig
-from ludwig.schema.model_config import InputFeaturesContainer, OutputFeaturesContainer
+from ludwig.schema.features.base import BaseInputFeatureConfig, BaseOutputFeatureConfig, FeatureCollection
 from ludwig.utils.algorithms_utils import topological_sort_feature_dependencies
 from ludwig.utils.metric_utils import get_scalar_from_ludwig_metric
 from ludwig.utils.misc_utils import get_from_registry
@@ -49,7 +49,7 @@ class BaseModel(LudwigModule, metaclass=ABCMeta):
         self.output_features = LudwigFeatureDict()
 
     @classmethod
-    def build_inputs(cls, input_feature_configs: InputFeaturesContainer) -> Dict[str, InputFeature]:
+    def build_inputs(cls, input_feature_configs: FeatureCollection[BaseInputFeatureConfig]) -> Dict[str, InputFeature]:
         """Builds and returns input features in topological order."""
         input_features = OrderedDict()
         input_features_def = topological_sort_feature_dependencies(input_feature_configs.to_list())
@@ -72,13 +72,11 @@ class BaseModel(LudwigModule, metaclass=ABCMeta):
             if tied_input_feature_name in other_input_features:
                 encoder_obj = other_input_features[tied_input_feature_name].encoder_obj
 
-        input_feature_class = get_from_registry(feature_config.type, input_type_registry)
-        input_feature_obj = input_feature_class(feature_config, encoder_obj=encoder_obj)
-        return input_feature_obj
+        return create_input_feature(feature_config, encoder_obj)
 
     @classmethod
     def build_outputs(
-        cls, output_feature_configs: OutputFeaturesContainer, combiner: Combiner
+        cls, output_feature_configs: FeatureCollection[BaseOutputFeatureConfig], combiner: Combiner
     ) -> Dict[str, OutputFeature]:
         """Builds and returns output features in topological order."""
         output_features_def = topological_sort_feature_dependencies(output_feature_configs.to_list())
@@ -99,7 +97,7 @@ class BaseModel(LudwigModule, metaclass=ABCMeta):
     ) -> OutputFeature:
         """Builds a single output feature from the output feature definition."""
         logger.debug(f"Output {feature_config.type} feature {feature_config.name}")
-        output_feature_class = get_from_registry(feature_config.type, output_type_registry)
+        output_feature_class = get_from_registry(feature_config.type, get_output_type_registry())
         output_feature_obj = output_feature_class(feature_config, output_features=output_features)
         return output_feature_obj
 
@@ -170,6 +168,10 @@ class BaseModel(LudwigModule, metaclass=ABCMeta):
     def predictions(self, inputs):
         """Returns the model's predictions for the given inputs."""
         outputs = self(inputs)
+        return self.outputs_to_predictions(outputs)
+
+    def outputs_to_predictions(self, outputs: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, torch.Tensor]]:
+        """Returns the model's predictions given the raw model outputs."""
         predictions = {}
         for of_name in self.output_features:
             predictions[of_name] = self.output_features[of_name].predictions(outputs, of_name)
@@ -284,6 +286,10 @@ class BaseModel(LudwigModule, metaclass=ABCMeta):
         tensor_set = set(tensor_names)
         return [named_param for named_param in self.named_parameters() if named_param[0] in tensor_set]
 
+    def unskip(self):
+        """Converts all skipped features into their fully encoded versions."""
+        pass
+
     @abstractmethod
     def save(self, save_path: str):
         """Saves the model to the given path."""
@@ -295,3 +301,11 @@ class BaseModel(LudwigModule, metaclass=ABCMeta):
     @abstractmethod
     def get_args(self):
         """Returns init arguments for constructing this model."""
+
+
+def create_input_feature(feature_config: BaseInputFeatureConfig, encoder_obj: Optional[Encoder]) -> InputFeature:
+    input_feature_cls = get_from_registry(feature_config.type, get_input_type_registry())
+    input_feature = input_feature_cls(feature_config, encoder_obj=encoder_obj)
+    if not feature_config.encoder.skip:
+        return input_feature
+    return create_passthrough_input_feature(input_feature, feature_config)

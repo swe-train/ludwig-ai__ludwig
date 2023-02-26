@@ -14,7 +14,7 @@
 # limitations under the License.
 # ==============================================================================
 import logging
-from typing import Any, Dict, List, Union
+from typing import Dict, List, Union
 
 import numpy as np
 import torch
@@ -22,6 +22,12 @@ import torch
 from ludwig.constants import COLUMN, HIDDEN, LOGITS, NAME, PREDICTIONS, PROC_COLUMN, VECTOR
 from ludwig.features.base_feature import InputFeature, OutputFeature, PredictModule
 from ludwig.schema.features.vector_feature import VectorInputFeatureConfig, VectorOutputFeatureConfig
+from ludwig.types import (
+    FeatureMetadataDict,
+    FeaturePostProcessingOutputDict,
+    PreprocessingConfigDict,
+    TrainingSetMetadataDict,
+)
 from ludwig.utils import output_feature_utils
 from ludwig.utils.types import TorchscriptPreprocessingInput
 
@@ -54,7 +60,7 @@ class _VectorPostprocessing(torch.nn.Module):
         self.predictions_key = PREDICTIONS
         self.logits_key = LOGITS
 
-    def forward(self, preds: Dict[str, torch.Tensor], feature_name: str) -> Dict[str, Any]:
+    def forward(self, preds: Dict[str, torch.Tensor], feature_name: str) -> FeaturePostProcessingOutputDict:
         predictions = output_feature_utils.get_output_feature_tensor(preds, feature_name, self.predictions_key)
         logits = output_feature_utils.get_output_feature_tensor(preds, feature_name, self.logits_key)
 
@@ -78,12 +84,20 @@ class VectorFeatureMixin:
         return column
 
     @staticmethod
-    def get_feature_meta(column, preprocessing_parameters, backend):
+    def get_feature_meta(
+        column, preprocessing_parameters: PreprocessingConfigDict, backend, is_input_feature: bool
+    ) -> FeatureMetadataDict:
         return {"preprocessing": preprocessing_parameters}
 
     @staticmethod
     def add_feature_data(
-        feature_config, input_df, proc_df, metadata, preprocessing_parameters, backend, skip_save_processed_input
+        feature_config,
+        input_df,
+        proc_df,
+        metadata,
+        preprocessing_parameters: PreprocessingConfigDict,
+        backend,
+        skip_save_processed_input,
     ):
         """Expects all the vectors to be of the same size.
 
@@ -106,14 +120,18 @@ class VectorFeatureMixin:
 
         # Determine vector size
         vector_size = backend.df_engine.compute(proc_df[feature_config[PROC_COLUMN]].map(len).max())
-        if "vector_size" in preprocessing_parameters:
-            if vector_size != preprocessing_parameters["vector_size"]:
+        vector_size_param = preprocessing_parameters.get("vector_size")
+        if vector_size_param is not None:
+            # TODO(travis): do we even need a user param for vector size if we're going to auto-infer it in all
+            # cases? Is this only useful as a sanity check for the user to make sure their data conforms to
+            # expectations?
+            if vector_size != vector_size_param:
                 raise ValueError(
                     "The user provided value for vector size ({}) does not "
                     "match the value observed in the data: {}".format(preprocessing_parameters, vector_size)
                 )
         else:
-            logger.debug(f"Observed vector size: {vector_size}")
+            logger.debug(f"Detected vector size: {vector_size}")
 
         metadata[feature_config[NAME]]["vector_size"] = vector_size
         return proc_df
@@ -151,7 +169,7 @@ class VectorInputFeature(VectorFeatureMixin, InputFeature):
         feature_config.encoder.input_size = feature_metadata["vector_size"]
 
     @staticmethod
-    def create_preproc_module(metadata: Dict[str, Any]) -> torch.nn.Module:
+    def create_preproc_module(metadata: TrainingSetMetadataDict) -> torch.nn.Module:
         return _VectorPreprocessing()
 
     @staticmethod
@@ -160,8 +178,6 @@ class VectorInputFeature(VectorFeatureMixin, InputFeature):
 
 
 class VectorOutputFeature(VectorFeatureMixin, OutputFeature):
-    metric_functions = VectorOutputFeatureConfig.get_output_metric_functions()
-
     def __init__(
         self,
         output_feature_config: Union[VectorOutputFeatureConfig, Dict],
@@ -224,7 +240,7 @@ class VectorOutputFeature(VectorFeatureMixin, OutputFeature):
         return result
 
     @staticmethod
-    def create_postproc_module(metadata: Dict[str, Any]) -> torch.nn.Module:
+    def create_postproc_module(metadata: TrainingSetMetadataDict) -> torch.nn.Module:
         return _VectorPostprocessing()
 
     @staticmethod

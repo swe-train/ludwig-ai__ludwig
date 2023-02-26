@@ -16,7 +16,7 @@
 
 import logging
 from functools import partial
-from typing import Any, Dict, List, Union
+from typing import Dict, List, Union
 
 import numpy as np
 import torch
@@ -35,6 +35,12 @@ from ludwig.constants import (
 from ludwig.features.base_feature import BaseFeatureMixin, InputFeature, OutputFeature, PredictModule
 from ludwig.features.feature_utils import compute_sequence_probability, compute_token_probabilities
 from ludwig.schema.features.sequence_feature import SequenceInputFeatureConfig, SequenceOutputFeatureConfig
+from ludwig.types import (
+    FeatureMetadataDict,
+    FeaturePostProcessingOutputDict,
+    PreprocessingConfigDict,
+    TrainingSetMetadataDict,
+)
 from ludwig.utils import output_feature_utils
 from ludwig.utils.math_utils import softmax
 from ludwig.utils.strings_utils import (
@@ -54,7 +60,7 @@ logger = logging.getLogger(__name__)
 class _SequencePreprocessing(torch.nn.Module):
     """Torchscript-enabled version of preprocessing done by SequenceFeatureMixin.add_feature_data."""
 
-    def __init__(self, metadata: Dict[str, Any]):
+    def __init__(self, metadata: TrainingSetMetadataDict):
         super().__init__()
         self.lowercase = metadata["preprocessing"]["lowercase"]
         self.tokenizer_type = metadata["preprocessing"]["tokenizer"]
@@ -105,10 +111,12 @@ class _SequencePreprocessing(torch.nn.Module):
         sequence_vector = torch.full([self.max_sequence_length], self.unit_to_id[self.padding_symbol])
 
         if self.tokenizer_type == "hf_tokenizer":
+            # Handles start, stop, and unknown symbols implicitly
             unit_sequence = self.tokenizer(sequence)
             assert torch.jit.isinstance(unit_sequence, List[int])
-            # Handles start, stop, and unknown symbols implicitly
-            sequence_vector[: len(unit_sequence)] = torch.tensor(unit_sequence)
+            # Ensures that the sequence lengths are aligned between the input and output tensors.
+            sequence_length = min(len(unit_sequence), self.max_sequence_length)
+            sequence_vector[:sequence_length] = torch.tensor(unit_sequence)[:sequence_length]
             return sequence_vector
 
         # If tokenizer is not HF, we manually convert tokens to IDs and insert start, stop, and unknown symbols.
@@ -133,7 +141,7 @@ class _SequencePreprocessing(torch.nn.Module):
 
 
 class _SequencePostprocessing(torch.nn.Module):
-    def __init__(self, metadata: Dict[str, Any]):
+    def __init__(self, metadata: TrainingSetMetadataDict):
         super().__init__()
         self.max_sequence_length = int(metadata["max_sequence_length"])
         self.idx2str = metadata["idx2str"]
@@ -142,7 +150,7 @@ class _SequencePostprocessing(torch.nn.Module):
         self.probabilities_key = PROBABILITIES
         self.probability_key = PROBABILITY
 
-    def forward(self, preds: Dict[str, torch.Tensor], feature_name: str) -> Dict[str, Any]:
+    def forward(self, preds: Dict[str, torch.Tensor], feature_name: str) -> FeaturePostProcessingOutputDict:
         pred_predictions = output_feature_utils.get_output_feature_tensor(preds, feature_name, self.predictions_key)
         pred_probabilities = output_feature_utils.get_output_feature_tensor(preds, feature_name, self.probabilities_key)
 
@@ -190,7 +198,9 @@ class SequenceFeatureMixin(BaseFeatureMixin):
         return column.astype(str)
 
     @staticmethod
-    def get_feature_meta(column, preprocessing_parameters, backend):
+    def get_feature_meta(
+        column, preprocessing_parameters: PreprocessingConfigDict, backend, is_input_feature: bool
+    ) -> FeatureMetadataDict:
         idx2str, str2idx, str2freq, max_length, _, _, _, _ = create_vocabulary(
             column,
             preprocessing_parameters["tokenizer"],
@@ -212,7 +222,7 @@ class SequenceFeatureMixin(BaseFeatureMixin):
         }
 
     @staticmethod
-    def feature_data(column, metadata, preprocessing_parameters, backend):
+    def feature_data(column, metadata, preprocessing_parameters: PreprocessingConfigDict, backend):
         sequence_data = build_sequence_matrix(
             sequences=column,
             inverse_vocabulary=metadata["str2idx"],
@@ -229,7 +239,13 @@ class SequenceFeatureMixin(BaseFeatureMixin):
 
     @staticmethod
     def add_feature_data(
-        feature_config, input_df, proc_df, metadata, preprocessing_parameters, backend, skip_save_processed_input
+        feature_config,
+        input_df,
+        proc_df,
+        metadata,
+        preprocessing_parameters: PreprocessingConfigDict,
+        backend,
+        skip_save_processed_input,
     ):
         sequence_data = SequenceInputFeature.feature_data(
             input_df[feature_config[COLUMN]],
@@ -284,13 +300,11 @@ class SequenceInputFeature(SequenceFeatureMixin, InputFeature):
         return self.encoder_obj.output_shape
 
     @staticmethod
-    def create_preproc_module(metadata: Dict[str, Any]) -> torch.nn.Module:
+    def create_preproc_module(metadata: TrainingSetMetadataDict) -> torch.nn.Module:
         return _SequencePreprocessing(metadata)
 
 
 class SequenceOutputFeature(SequenceFeatureMixin, OutputFeature):
-    metric_functions = SequenceOutputFeatureConfig.get_output_metric_functions()
-
     def __init__(
         self,
         output_feature_config: Union[SequenceOutputFeatureConfig, Dict],
@@ -459,7 +473,7 @@ class SequenceOutputFeature(SequenceFeatureMixin, OutputFeature):
         return result
 
     @staticmethod
-    def create_postproc_module(metadata: Dict[str, Any]) -> torch.nn.Module:
+    def create_postproc_module(metadata: TrainingSetMetadataDict) -> torch.nn.Module:
         return _SequencePostprocessing(metadata)
 
     @staticmethod

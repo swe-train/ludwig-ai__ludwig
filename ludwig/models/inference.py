@@ -9,9 +9,10 @@ from torch import nn
 from ludwig.constants import NAME, POSTPROCESSOR, PREDICTOR, PREPROCESSOR, TYPE
 from ludwig.data.postprocessing import convert_dict_to_df
 from ludwig.data.preprocessing import load_metadata
-from ludwig.features.feature_registries import input_type_registry
+from ludwig.features.feature_registries import get_input_type_registry
 from ludwig.features.feature_utils import get_module_dict_key_from_name, get_name_from_module_dict_key
 from ludwig.globals import MODEL_HYPERPARAMETERS_FILE_NAME, TRAIN_SET_METADATA_FILE_NAME
+from ludwig.types import ModelConfigDict, TrainingSetMetadataDict
 from ludwig.utils import output_feature_utils
 from ludwig.utils.data_utils import load_json, save_json
 from ludwig.utils.inference_utils import get_filename_from_stage, to_inference_module_input_from_dataframe
@@ -35,8 +36,8 @@ class InferenceModule(nn.Module):
         preprocessor: torch.jit.ScriptModule,
         predictor: torch.jit.ScriptModule,
         postprocessor: torch.jit.ScriptModule,
-        config: Optional[Dict[str, Any]] = None,
-        training_set_metadata: Optional[Dict[str, Any]] = None,
+        config: Optional[ModelConfigDict] = None,
+        training_set_metadata: Optional[TrainingSetMetadataDict] = None,
     ):
         super().__init__()
         self.preprocessor = preprocessor
@@ -93,8 +94,8 @@ class InferenceModule(nn.Module):
     def from_ludwig_model(
         cls: "InferenceModule",
         model: "BaseModel",
-        config: Dict[str, Any],
-        training_set_metadata: Dict[str, Any],
+        config: ModelConfigDict,
+        training_set_metadata: TrainingSetMetadataDict,
         device: Optional[TorchDevice] = None,
     ):
         """Create an InferenceModule from a trained LudwigModel."""
@@ -150,12 +151,12 @@ class _InferencePreprocessor(nn.Module):
     get_module_dict_key_from_name and get_name_from_module_dict_key usage.
     """
 
-    def __init__(self, config: Dict[str, Any], training_set_metadata: Dict[str, Any]):
+    def __init__(self, config: ModelConfigDict, training_set_metadata: TrainingSetMetadataDict):
         super().__init__()
         self.preproc_modules = nn.ModuleDict()
         for feature_config in config["input_features"]:
             feature_name = feature_config[NAME]
-            feature = get_from_registry(feature_config[TYPE], input_type_registry)
+            feature = get_from_registry(feature_config[TYPE], get_input_type_registry())
             # prevents collisions with reserved keywords
             module_dict_key = get_module_dict_key_from_name(feature_name)
             self.preproc_modules[module_dict_key] = feature.create_preproc_module(training_set_metadata[feature_name])
@@ -209,7 +210,7 @@ class _InferencePostprocessor(nn.Module):
     get_module_dict_key_from_name and get_name_from_module_dict_key usage.
     """
 
-    def __init__(self, model: "BaseModel", training_set_metadata: Dict[str, Any]):
+    def __init__(self, model: "BaseModel", training_set_metadata: TrainingSetMetadataDict):
         super().__init__()
         self.postproc_modules = nn.ModuleDict()
         for feature_name, feature in model.output_features.items():
@@ -232,8 +233,8 @@ class _InferencePostprocessor(nn.Module):
 def save_ludwig_model_for_inference(
     save_path: str,
     model: "BaseModel",
-    config: Dict[str, Any],
-    training_set_metadata: Dict[str, Any],
+    config: ModelConfigDict,
+    training_set_metadata: TrainingSetMetadataDict,
     device: Optional[TorchDevice] = None,
     model_only: bool = False,
 ) -> None:
@@ -285,8 +286,8 @@ def _init_inference_stages_from_directory(
 
 def _init_inference_stages_from_ludwig_model(
     model: "BaseModel",
-    config: Dict[str, Any],
-    training_set_metadata: Dict[str, Any],
+    config: ModelConfigDict,
+    training_set_metadata: TrainingSetMetadataDict,
     device: TorchDevice,
     scripted: bool = True,
 ) -> Dict[str, torch.nn.Module]:

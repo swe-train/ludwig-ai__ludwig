@@ -1,5 +1,7 @@
+import logging
 from typing import Set
 
+from ludwig.api_annotations import DeveloperAPI
 from ludwig.constants import AUDIO, BINARY, CATEGORY, DATE, IMAGE, NUMBER, TEXT
 from ludwig.utils import strings_utils
 from ludwig.utils.automl.field_info import FieldInfo
@@ -8,7 +10,12 @@ from ludwig.utils.automl.field_info import FieldInfo
 # assign the CATEGORY type.
 CATEGORY_TYPE_DISTINCT_VALUE_PERCENTAGE_CUTOFF = 0.5
 
+# Consider the field a valid text field if it has at least 5 average words. Fewer than this and it may be a cateogry
+# or an ID field (like a name or place) of some kind.
+TEXT_AVG_WORDS_CUTOFF = 5
 
+
+@DeveloperAPI
 def infer_type(field: FieldInfo, missing_value_percent: float, row_count: int) -> str:
     """Perform type inference on field.
 
@@ -45,7 +52,8 @@ def infer_type(field: FieldInfo, missing_value_percent: float, row_count: int) -
     # - The distinct values are not all numbers.
     # - The distinct values are all numbers but comprise of a perfectly sequential list of integers that suggests the
     #   values represent categories.
-    if num_distinct_values < row_count * CATEGORY_TYPE_DISTINCT_VALUE_PERCENTAGE_CUTOFF and (
+    valid_row_count = row_count * (1.0 - missing_value_percent)
+    if num_distinct_values < valid_row_count * CATEGORY_TYPE_DISTINCT_VALUE_PERCENTAGE_CUTOFF and (
         (not strings_utils.are_all_numbers(distinct_values)) or strings_utils.are_sequential_integers(distinct_values)
     ):
         return CATEGORY
@@ -59,14 +67,19 @@ def infer_type(field: FieldInfo, missing_value_percent: float, row_count: int) -
     return TEXT
 
 
-def should_exclude(idx: int, field: FieldInfo, dtype: str, row_count: int, targets: Set[str]) -> bool:
+@DeveloperAPI
+def should_exclude(
+    idx: int, field: FieldInfo, dtype: str, column_count: int, row_count: int, targets: Set[str]
+) -> bool:
     if field.key == "PRI":
+        logging.info(f"Exclude {field.name} ({dtype}): primary key")
         return True
 
     if field.name in targets:
         return False
 
     if field.num_distinct_values <= 1:
+        logging.info(f"Exclude {field.name} ({dtype}): less than 2 distinct values")
         return True
 
     distinct_value_percent = float(field.num_distinct_values) / row_count
@@ -77,6 +90,13 @@ def should_exclude(idx: int, field: FieldInfo, dtype: str, row_count: int, targe
             or upper_name.endswith("ID")
             or upper_name.startswith("ID")
         ):
+            logging.info(f"Exclude {field.name} ({dtype}): unique ID column")
             return True
+
+    # For TEXT fields, we only want to use them if they appear "interesting", otherwise we would rather exclude
+    # them and treat the problem as a tabular problem
+    if column_count > 3 and dtype == TEXT and (field.avg_words or 0) < TEXT_AVG_WORDS_CUTOFF:
+        logging.info(f"Exclude {field.name} ({dtype}): too few average words")
+        return True
 
     return False
