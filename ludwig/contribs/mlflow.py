@@ -426,7 +426,6 @@ def log_model(
 
     Model.log(
         artifact_path=artifact_path,
-        # flavor=sys.modules[__name__],
         flavor=ludwig.contribs.mlflow,
         registered_model_name=registered_model_name,
         conda_env=conda_env,
