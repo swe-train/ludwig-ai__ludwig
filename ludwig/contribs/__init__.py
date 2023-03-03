@@ -33,12 +33,23 @@ If you don't want to handle the call, either provide an empty
 method with `pass`, or just don't implement the method.
 """
 
-from .aim import AimCallback
-
 # Contributors, import your class here:
-from .comet import CometCallback
-from .mlflow import MlflowCallback
-from .wandb import WandbCallback
+try:
+    from .aim import AimCallback
+except ImportError:
+    AimCallback = None
+try:
+    from .comet import CometCallback
+except ImportError:
+    CometCallback = None
+try:
+    from .mlflow import MlflowCallback
+except ImportError:
+    MlflowCallback = None
+try:
+    from .wandb import WandbCallback
+except ImportError:
+    WandbCallback = None
 
 contrib_registry = {
     # Contributors, add your class here:

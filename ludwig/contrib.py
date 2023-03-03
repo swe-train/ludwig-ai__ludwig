@@ -20,12 +20,13 @@ from .contribs import contrib_registry
 
 def add_contrib_callback_args(parser):
     for contrib_name, contrib_cls in contrib_registry.items():
-        parser.add_argument(
-            f"--{contrib_name}",
-            dest="callbacks",
-            action="append_const",
-            const=contrib_cls(),
-        )
+        if contrib_cls is not None:
+            parser.add_argument(
+                f"--{contrib_name}",
+                dest="callbacks",
+                action="append_const",
+                const=contrib_cls(),
+            )
 
 
 def preload(argv):

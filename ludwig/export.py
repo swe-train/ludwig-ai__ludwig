@@ -133,7 +133,7 @@ def export_mlflow(model_path, output_path="mlflow", registered_model_name=None, 
     logger.info(f"Output path: {output_path}")
     logger.info("\n")
 
-    from ludwig.contribs.mlflow.model import export_model
+    from ludwig.contribs.mlflow import export_model
 
     export_model(model_path, output_path, registered_model_name)
 
