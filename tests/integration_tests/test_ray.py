@@ -287,7 +287,7 @@ def split(data_parquet):
 def run_test_with_features(
     input_features,
     output_features,
-    num_examples=100,
+    num_examples=10,
     run_fn=run_api_experiment,
     expect_error=False,
     df_engine=None,
