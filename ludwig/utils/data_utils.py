@@ -158,6 +158,10 @@ def spread(fn):
 
     return wrapped_fn
 
+def inner_read(fp, read_fn, **kwargs):
+    if "get_preview" in kwargs:
+        return next(read_fn(fp, chunksize=kwargs['get_preview'], **kwargs))
+    return read_fn(fp, **kwargs)
 
 @DeveloperAPI
 @spread
@@ -191,8 +195,12 @@ def read_xsv(data_fp, df_lib=PANDAS_DF, separator=",", header=0, nrows=None, ski
         kwargs["nrows"] = nrows
 
     # Create an iterator that will immediately be used to read the first chunk:
-    if 'get_preview' in kwargs:
+    logger.warning('TEST'*50)
+    logger.warning(kwargs)
+    get_preview = kwargs.get('get_preview', False)
+    if get_preview:
         kwargs['chunksize'] = kwargs['get_preview']
+        del kwargs['get_preview']
 
     try:
         df = df_lib.read_csv(data_fp, **kwargs)
@@ -200,9 +208,10 @@ def read_xsv(data_fp, df_lib=PANDAS_DF, separator=",", header=0, nrows=None, ski
         logger.warning("Failed to parse the CSV with pandas default way," " trying \\ as escape character.")
         df = df_lib.read_csv(data_fp, escapechar="\\", **kwargs)
 
-    if 'get_preview' in kwargs:
-        for chunk in df:
-            return chunk
+    logger.warning(kwargs)
+    if get_preview:
+        logger.warning(type(df))
+        return next(df)
 
     return df
 
