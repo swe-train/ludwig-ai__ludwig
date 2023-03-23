@@ -89,6 +89,35 @@ class StratifySplitConfig(BaseSplitConfig):
 
 
 @DeveloperAPI
+@split_config_registry.register("stratify_output")
+@ludwig_dataclass
+class StratifyOutputSplitConfig(BaseSplitConfig):
+    """This Dataclass generates the schema for the stratify output splitting config.
+
+    This is different from stratify in that it will only stratify if the output column is categorical. Otherwise, it
+    will use random splitting.
+    """
+
+    type: str = schema_utils.ProtectedString(
+        "stratify_output",
+        description="Type of splitting to use during preprocessing.",
+    )
+
+    column: str = schema_utils.String(
+        default=None,
+        allow_none=True,
+        description="The column name to base the stratified splitting on.",
+    )
+
+    probabilities: list = schema_utils.List(
+        list_type=float,
+        default=DEFAULT_PROBABILITIES,
+        description="Probabilities for splitting data into train, validation, and test sets.",
+        parameter_metadata=PREPROCESSING_METADATA["split_probabilities"],
+    )
+
+
+@DeveloperAPI
 @split_config_registry.register("datetime")
 @ludwig_dataclass
 class DateTimeSplitConfig(BaseSplitConfig):

@@ -30,6 +30,7 @@ from ludwig.schema.split import (
     FixedSplitConfig,
     HashSplitConfig,
     RandomSplitConfig,
+    StratifyOutputSplitConfig,
     StratifySplitConfig,
 )
 from ludwig.types import ModelConfigDict, PreprocessingConfigDict
@@ -248,6 +249,32 @@ class StratifySplitter(Splitter):
         return StratifySplitConfig
 
 
+@split_registry.register("stratify_output")
+class StratifyOutputSplitter(Splitter):
+    def __init__(self, column: str, probabilities: List[float] = DEFAULT_PROBABILITIES, **kwargs):
+        self.column = column
+        self.probabilities = probabilities
+
+    def split(
+        self, df: DataFrame, backend: Backend, random_seed: float = default_random_seed
+    ) -> Tuple[DataFrame, DataFrame, DataFrame]:
+        pass
+
+    def validate(self, config: ModelConfigDict):
+        pass
+
+    def has_split(self, split_index: int) -> bool:
+        return self.probabilities[split_index] > 0
+
+    @property
+    def required_columns(self) -> List[str]:
+        return [self.column]
+
+    @staticmethod
+    def get_schema_cls():
+        return StratifyOutputSplitConfig
+
+
 @split_registry.register("datetime")
 class DatetimeSplitter(Splitter):
     def __init__(
@@ -377,6 +404,7 @@ def split_dataset(
     backend: Backend,
     random_seed: float = default_random_seed,
 ) -> Tuple[DataFrame, DataFrame, DataFrame]:
+    """Splits a dataset into train, validation, and test sets."""
     splitter = get_splitter(**global_preprocessing_parameters.get(SPLIT, {}))
     datasets: Tuple[DataFrame, DataFrame, DataFrame] = splitter.split(df, backend, random_seed)
     if len(datasets[0].columns) == 0:
