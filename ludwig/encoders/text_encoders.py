@@ -49,7 +49,7 @@ from ludwig.schema.encoders.text_encoders import (
     XLNetConfig,
 )
 from ludwig.utils.hf_utils import load_pretrained_hf_model_with_hub_fallback
-from ludwig.utils.torch_utils import FreezeModule
+from ludwig.utils.torch_utils import FreezeModule, IgnoreLabelsWrapper
 
 if TYPE_CHECKING:
     from transformers import PretrainedConfig, PreTrainedModel
@@ -155,6 +155,7 @@ class HFTextEncoderImpl(HFTextEncoder):
         super().__init__()
 
         # TODO(travis): get_hf_config_param_names should be implemented as abstract in HFEncoderConfig
+        print("PRETRAINED MODEL NAME OR PATH: ", pretrained_model_name_or_path)
         vocab_size = kwargs["vocab_size"]
         hf_config_params = {k: v for k, v in kwargs.items() if k in schema_cls.get_hf_config_param_names()}
         if use_pretrained and not saved_weights_in_checkpoint:
@@ -162,6 +163,28 @@ class HFTextEncoderImpl(HFTextEncoder):
             transformer, _ = load_pretrained_hf_model_with_hub_fallback(
                 model_cls, pretrained_model_name_or_path, **pretrained_kwargs
             )
+
+            print(transformer)
+
+            from peft import LoraConfig, get_peft_model, prepare_model_for_int8_training, TaskType
+
+            # Define LoRA Config
+            lora_config = LoraConfig(
+                r=16,
+                lora_alpha=32,
+                target_modules=["query_proj", "value_proj"],
+                lora_dropout=0.05,
+                bias="none",
+                task_type=TaskType.SEQ_CLS,
+            )
+
+            # prepare int-8 model for training
+            transformer = prepare_model_for_int8_training(transformer)
+            transformer = IgnoreLabelsWrapper(transformer)
+
+            # add LoRA adaptor
+            transformer = get_peft_model(transformer, lora_config)
+            transformer.print_trainable_parameters()
         else:
             transformer = self._init_transformer_from_scratch(model_cls, config_cls, hf_config_params, vocab_size)
 
@@ -181,8 +204,8 @@ class HFTextEncoderImpl(HFTextEncoder):
             mask = mask.to(torch.int32)
         transformer_outputs = self.transformer.module(
             input_ids=inputs,
-            attention_mask=mask,
-            token_type_ids=torch.zeros_like(inputs),
+            # attention_mask=mask,
+            # token_type_ids=torch.zeros_like(inputs),
         )
         if self.reduce_output == "cls_pooled":
             hidden = transformer_outputs["pooler_output"]
