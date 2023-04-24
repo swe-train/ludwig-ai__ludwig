@@ -106,7 +106,7 @@ class ZeroShotTrainer(BaseTrainer):
             self.device = get_torch_device()
 
         self.model = model
-        self.model = self.model.to(self.device)
+        # self.model = self.model.to(self.device)
 
         self.batch_size = self.config.batch_size
         self.eval_batch_size = self.config.eval_batch_size

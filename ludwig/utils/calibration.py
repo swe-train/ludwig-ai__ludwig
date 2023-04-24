@@ -152,7 +152,7 @@ class TemperatureScaling(CalibrationModule):
         self.num_classes = 2 if binary else num_classes
         self.binary = binary
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.temperature = nn.Parameter(torch.ones(1), requires_grad=False).to(self.device)
+        self.temperature = nn.Parameter(torch.ones(1), requires_grad=False)
 
     def train_calibration(
         self, logits: Union[torch.Tensor, np.ndarray], labels: Union[torch.Tensor, np.ndarray]

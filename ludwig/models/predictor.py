@@ -77,7 +77,8 @@ class Predictor(BasePredictor):
 
         # TODO (jeffkinnison): revert to using the requested device for GBMs when device usage is fixed
         self.device = get_torch_device() if not model.type() == MODEL_GBM else "cpu"
-        self.model = model.to(self.device)
+        # self.model = model.to(self.device)
+        self.model = model
 
     def batch_predict(self, dataset: Dataset, dataset_name: str = None, collect_logits: bool = False):
         prev_model_training_mode = self.model.training  # store previous model training mode
@@ -137,7 +138,7 @@ class Predictor(BasePredictor):
             predictions: dictionary of predictions
         """
         inputs = {
-            i_feat.feature_name: torch.from_numpy(np.array(batch[i_feat.proc_column], copy=True)).to(self.device)
+            i_feat.feature_name: torch.from_numpy(np.array(batch[i_feat.proc_column], copy=True))
             for i_feat in model.input_features.values()
         }
 

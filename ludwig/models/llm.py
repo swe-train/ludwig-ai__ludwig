@@ -49,7 +49,25 @@ class LLM(BaseModel):
         )
 
         self.model_name = self.config_obj.model_name
-        self.model = AutoModelForCausalLM.from_pretrained(self.model_name)
+
+        print("Loading large language model...")
+        self.model = AutoModelForCausalLM.from_pretrained(
+            self.model_name,
+            low_cpu_mem_usage=True,
+            torch_dtype=torch.float16,
+            device_map="auto",
+            max_memory={i: "13GiB" for i in range(4)},
+        )
+        print("Done loading large language model...")
+
+        # Determines the maximum length of the context (input + output tokens)
+        if hasattr(self.model.config, "max_sequence_length"):
+            self.context_len = self.model.config.max_sequence_length
+        elif hasattr(self.model.config, "max_position_embeddings"):
+            self.context_len = self.model.config.max_position_embeddings
+        else:
+            self.context_len = 2048
+        print("Context length:", self.context_len)
 
         # If an adapter config is provided, we want to wrap the model with a PEFT model
         # for fine-tuning.
@@ -65,6 +83,7 @@ class LLM(BaseModel):
         # Initialize the generation config to use for generation calls.
         self.generation_config = GenerationConfig(**self.config_obj.generation_config.to_dict())
         self.max_new_tokens = self.config_obj.generation_config.max_new_tokens
+        self.max_input_length = self.context_len - self.max_new_tokens - 8
 
         # ================ Inputs ================
         try:
@@ -156,11 +175,15 @@ class LLM(BaseModel):
         assert list(inputs.keys()) == self.input_features.keys()
 
         input_ids = self.get_input_ids(inputs)
+        input_ids = input_ids[:, -self.max_input_length :]
+
         if self.adapter:
             # Forward pass using PEFT model for fine-tuning
-            model_outputs = self.model(input_ids)
+            model_outputs = self.model()
             # Pass generated tokens through decoder after averaging the token probabilities
-            logits_with_averaged_token_probabilities = torch.mean(model_outputs[LOGITS], dim=1)
+            logits_with_averaged_token_probabilities = torch.mean(model_outputs[LOGITS], dim=1, dtype=torch.float32).to(
+                "cpu"
+            )
             decoder_outputs = self.output_feature_decoder.decoder_obj(logits_with_averaged_token_probabilities)
             # Set the output feature tensor to the decoder outputs (logits)
             outputs = {}
@@ -224,6 +247,9 @@ class LLM(BaseModel):
                 _targets = self._realign_target_tensor(targets, predictions, of_name)
                 of_eval_loss = of_obj.eval_loss(_targets[of_name], predictions[of_name])
             else:
+                targets[of_name] = targets[of_name].to("cpu")
+                for k, v in predictions[of_name].items():
+                    predictions[of_name][k] = v.to("cpu")
                 of_eval_loss = of_obj.eval_loss(targets[of_name], predictions[of_name])
             eval_loss += of_obj.loss.weight * of_eval_loss
 

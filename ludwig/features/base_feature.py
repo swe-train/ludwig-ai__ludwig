@@ -344,6 +344,7 @@ class OutputFeature(BaseFeature, LudwigModule, ABC):
             targets: Tensor with target values for this output feature.
             predictions: Dict of tensors returned by predictions().
         """
+        targets = targets.to("cpu")
         for metric_name, metric_fn in self._metric_functions.items():
             prediction_key = get_metric_tensor_input(metric_name)
             metric_fn = metric_fn.to(predictions[prediction_key].device)

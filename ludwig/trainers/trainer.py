@@ -173,7 +173,7 @@ class Trainer(BaseTrainer):
         self.base_learning_rate = base_learning_rate
 
         self.model = model
-        self.model = self.model.to(self.device)
+        # self.model = self.model.to(self.device)
 
         compiled_model = self.model
         if config.compile:
@@ -802,11 +802,11 @@ class Trainer(BaseTrainer):
 
             # Move tensors to cuda here.
             inputs = {
-                i_feat.feature_name: torch.from_numpy(np.array(batch[i_feat.proc_column], copy=True)).to(self.device)
+                i_feat.feature_name: torch.from_numpy(np.array(batch[i_feat.proc_column], copy=True))
                 for i_feat in self.model.input_features.values()
             }
             targets = {
-                o_feat.feature_name: torch.from_numpy(np.array(batch[o_feat.proc_column], copy=True)).to(self.device)
+                o_feat.feature_name: torch.from_numpy(np.array(batch[o_feat.proc_column], copy=True))
                 for o_feat in self.model.output_features.values()
             }
 
@@ -1134,7 +1134,6 @@ class Trainer(BaseTrainer):
             not progress_tracker.num_increases_batch_size >= increase_batch_size_on_plateau
             and not progress_tracker.batch_size == increase_batch_size_on_plateau_max
         ):
-
             if increase_batch_size_eval_split == TRAINING:
                 split_metrics = progress_tracker.train_metrics
             elif increase_batch_size_eval_split == VALIDATION:
