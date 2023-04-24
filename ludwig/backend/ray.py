@@ -36,7 +36,7 @@ from ray.train.torch import TorchCheckpoint
 from ray.util.dask import ray_dask_get
 from ray.util.placement_group import placement_group, remove_placement_group
 
-from ludwig.distributed import get_current_dist_strategy, get_default_strategy_name, get_dist_strategy
+from ludwig.distributed import get_default_strategy_name, get_dist_strategy, init_dist_strategy
 from ludwig.utils.batch_size_tuner import BatchSizeEvaluator
 
 if TYPE_CHECKING:
@@ -154,6 +154,7 @@ def _local_size() -> int:
 
 
 def train_fn(
+    distributed_strategy: Union[str, Dict[str, Any]],
     executable_kwargs: Dict[str, Any] = None,
     model_ref: ObjectRef = None,  # noqa: F821
     training_set_metadata: TrainingSetMetadataDict = None,
@@ -162,7 +163,7 @@ def train_fn(
 ):
     # Pin GPU before loading the model to prevent memory leaking onto other devices
     initialize_pytorch(local_rank=session.get_local_rank(), local_size=_local_size())
-    distributed = get_current_dist_strategy(allow_local=False)()
+    distributed = init_dist_strategy(distributed_strategy)
     try:
         train_shard = RayDatasetShard(
             session.get_dataset_shard("train"),
@@ -244,7 +245,7 @@ def tune_batch_size_fn(
     # inside of a RayTrainer class, so we manually set the local_rank to 0 so that it picks up the right
     # device to tune batch size on.
     initialize_pytorch(local_rank=0, local_size=_local_size())
-    distributed = get_current_dist_strategy(allow_local=True)()
+    distributed = init_dist_strategy("local")
     try:
         train_shard = RayDatasetShard(
             dataset.ds,
@@ -255,8 +256,9 @@ def tune_batch_size_fn(
         device = get_torch_device()
         model = model.to(device)
 
+        # No need to snapshot weights when using Ray, as the model will be re-created at train time anyway.
         trainer = RemoteTrainer(model=model, distributed=distributed, **executable_kwargs)
-        return trainer.tune_batch_size(ludwig_config, train_shard, **kwargs)
+        return trainer.tune_batch_size(ludwig_config, train_shard, snapshot_weights=False, **kwargs)
     finally:
         torch.cuda.empty_cache()
         distributed.shutdown()
@@ -363,10 +365,12 @@ class RayAirRunner:
         stream_window_size: Dict[str, Union[None, float]],
         callbacks: List[Any] = [],
     ) -> Tuple[Dict, TorchCheckpoint]:
-        trainer_cls, kwargs = get_dist_strategy(self.strategy).get_trainer_cls(self.backend_config)
+        strategy_cls = get_dist_strategy(self.strategy)
+        trainer_cls, kwargs = strategy_cls.get_trainer_cls(self.backend_config)
+        train_loop_config = {**config, "distributed_strategy": self.strategy}
         trainer = trainer_cls(
             train_loop_per_worker=train_loop_per_worker,
-            train_loop_config=config,
+            train_loop_config=train_loop_config,
             datasets=dataset,
             scaling_config=self.scaling_config,
             dataset_config=self._get_dataset_configs(dataset, stream_window_size, data_loader_kwargs),
@@ -518,13 +522,8 @@ class RayTrainerV2(BaseTrainer):
         pass
 
 
-class HorovodRemoteTrainer(RemoteTrainer):
-    def __init__(self, **kwargs):
-        distributed = get_current_dist_strategy(allow_local=False)()
-        super().__init__(distributed=distributed, **kwargs)
-
-
 def eval_fn(
+    distributed_strategy: Union[str, Dict[str, Any]],
     predictor_kwargs: Dict[str, Any] = None,
     model_ref: ObjectRef = None,  # noqa: F821
     training_set_metadata: TrainingSetMetadataDict = None,
@@ -533,7 +532,7 @@ def eval_fn(
 ):
     # Pin GPU before loading the model to prevent memory leaking onto other devices
     initialize_pytorch(local_rank=session.get_local_rank(), local_size=_local_size())
-    distributed = get_current_dist_strategy(allow_local=False)()
+    distributed = init_dist_strategy(distributed_strategy)
     try:
         eval_shard = RayDatasetShard(
             session.get_dataset_shard("eval"),

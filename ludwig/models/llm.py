@@ -19,7 +19,6 @@ from ludwig.schema.model_types.llm import LLMModelConfig
 from ludwig.utils.augmentation_utils import AugmentationPipelines
 from ludwig.utils.data_utils import clear_data_cache
 from ludwig.utils.output_feature_utils import set_output_feature_tensor
-from ludwig.utils.strings_utils import get_tokenizer
 
 logger = logging.getLogger(__name__)
 
@@ -41,12 +40,6 @@ class LLM(BaseModel):
         self._random_seed = random_seed
 
         self.adapter = copy.deepcopy(self.config_obj.adapter)
-
-        self.tokenizer = get_tokenizer(
-            tokenizer_type="hf_tokenizer",
-            tokenizer_vocab_file=None,
-            pretrained_model_name_or_path=self.config_obj.model_name,
-        )
 
         self.model_name = self.config_obj.model_name
 
@@ -176,13 +169,17 @@ class LLM(BaseModel):
 
         input_ids = self.get_input_ids(inputs)
         input_ids = input_ids[:, -self.max_input_length :]
+        input_ids = input_ids.to(self.model.device)
+
+        print(">>>>> Model device:", self.model.device)
+        print(">>>>> Input IDs device:", input_ids.device)
 
         if self.adapter:
             # Forward pass using PEFT model for fine-tuning
-            model_outputs = self.model()
+            model_outputs = self.model(input_ids)
             # Pass generated tokens through decoder after averaging the token probabilities
             logits_with_averaged_token_probabilities = torch.mean(model_outputs[LOGITS], dim=1, dtype=torch.float32).to(
-                "cpu"
+                self.model.device
             )
             decoder_outputs = self.output_feature_decoder.decoder_obj(logits_with_averaged_token_probabilities)
             # Set the output feature tensor to the decoder outputs (logits)

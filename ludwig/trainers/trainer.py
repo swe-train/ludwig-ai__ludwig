@@ -21,6 +21,7 @@ import os
 import os.path
 import signal
 import sys
+import tempfile
 import threading
 import time
 from typing import Dict, List, Optional, Tuple
@@ -131,6 +132,8 @@ class Trainer(BaseTrainer):
                 (default: `ludwig.schema.trainer.ECDTrainerConfig()`).
         """
 
+        self.distributed = distributed if distributed is not None else LocalStrategy()
+
         self.epochs = config.epochs
         self.train_steps = config.train_steps
         self.total_steps = 0  # Computed during training, after batcher has been initialized.
@@ -152,13 +155,14 @@ class Trainer(BaseTrainer):
         self.increase_batch_size_on_plateau_rate = config.increase_batch_size_on_plateau_rate
         self.increase_batch_size_eval_metric = config.increase_batch_size_eval_metric
         self.increase_batch_size_eval_split = config.increase_batch_size_eval_split
-        self.gradient_accumulation_steps = config.gradient_accumulation_steps
+        self.gradient_accumulation_steps = (
+            config.gradient_accumulation_steps if self.distributed.allow_gradient_accumulation() else 1
+        )
         self.resume = resume
         self.skip_save_model = skip_save_model
         self.skip_save_progress = skip_save_progress
         self.skip_save_log = skip_save_log
         self.random_seed = random_seed
-        self.distributed = distributed if distributed is not None else LocalStrategy()
         self.received_sigint = False
         self.report_tqdm_to_ray = report_tqdm_to_ray
         self.callbacks = callbacks or []
@@ -173,33 +177,21 @@ class Trainer(BaseTrainer):
         self.base_learning_rate = base_learning_rate
 
         self.model = model
-        # self.model = self.model.to(self.device)
+        # self.model = self.distributed.to_device(self.model)
 
-        compiled_model = self.model
+        self.compiled_model = self.model
         if config.compile:
-            compiled_model = torch.compile(self.model)
+            self.compiled_model = torch.compile(self.model)
             logger.info("Training with torchdynamo compiled model")
 
-        # Some frameworks like DDP will wrap the model in a new interface that loses the methods from ECD. To
-        # workaround this, we maintain a separate attribute for the wrapped model, which will be used for training
-        # steps, while other operations happen on the original ECD model. Parameters are shared between the two models
-        # so it is safe to train with the wrapped model and save the best model from the ECD model.
-        self.dist_model = self.distributed.wrap_model(compiled_model)
-
         # ================ Optimizer tuning ================
-        optimizer_config = config.optimizer
         self.gradient_clipping_config = create_clipper(config.gradient_clipping)
-        self.optimizer = create_optimizer(
-            self.dist_model,
-            learning_rate=self.base_learning_rate,
-            distributed=self.distributed,
-            optimizer_config=optimizer_config,
-            gradient_accumulation_steps=self.gradient_accumulation_steps,
-        )
-        self.scheduler = LRScheduler(config.learning_rate_scheduler, self.optimizer)
+
+        self.config = config
+        self.prepare()
 
         # Setup for automatic mixed precision (AMP)
-        self.use_amp = config.use_mixed_precision
+        self.use_amp = config.use_mixed_precision and self.distributed.allow_mixed_precision()
         if self.use_amp:
             if torch.cuda.is_available():
                 logger.info("Enabling automatic mixed precision (AMP)")
@@ -213,6 +205,24 @@ class Trainer(BaseTrainer):
         # the original sigint to restore at the end of training
         # and before set_steps_to_1_or_quit returns
         self.original_sigint_handler = None
+
+    def prepare(self):
+        optimizer_config = self.config.optimizer
+        optimizer = create_optimizer(
+            self.compiled_model,
+            learning_rate=self.base_learning_rate,
+            distributed=self.distributed,
+            optimizer_config=optimizer_config,
+            gradient_accumulation_steps=self.gradient_accumulation_steps,
+        )
+        scheduler = LRScheduler(self.config.learning_rate_scheduler, optimizer)
+
+        self.dist_model, self.optimizer, self.scheduler = self.distributed.prepare(
+            self.compiled_model,
+            optimizer,
+            scheduler,
+            self.config,
+        )
 
     def train_step(
         self, inputs: Dict[str, torch.Tensor], targets: Dict[str, torch.Tensor], should_step: bool = True
@@ -234,7 +244,7 @@ class Trainer(BaseTrainer):
 
             def closure():
                 # Allows L-BFGS to reevaluate the loss function
-                self.optimizer.zero_grad()
+                self.distributed.zero_grad(self.optimizer)
                 model_outputs = self.dist_model((inputs, targets))
                 loss, _ = self.model.train_loss(
                     targets, model_outputs, self.regularization_type, self.regularization_lambda
@@ -242,7 +252,7 @@ class Trainer(BaseTrainer):
                 loss.backward()
                 return loss
 
-            self.optimizer.step(closure)
+            self.distributed.step(self.optimizer, closure)
 
             # Obtain model predictions and loss
             model_outputs = self.dist_model((inputs, targets))
@@ -272,7 +282,7 @@ class Trainer(BaseTrainer):
         if self.use_amp:
             self.scaler.scale(loss).backward()
         else:
-            loss.backward()
+            self.distributed.backward(loss, self.dist_model)
 
         if not should_step:
             # Short-circuit the parameter updates if we are still accumulating gradients
@@ -289,8 +299,9 @@ class Trainer(BaseTrainer):
             # https://pytorch.org/docs/master/notes/amp_examples.html#gradient-clipping
             self.scaler.unscale_(self.optimizer)
 
-        # Clip gradients
-        self.clip_grads(variables)
+        if self.distributed.allow_clip_gradients():
+            # Clip gradients
+            self.clip_grads(variables)
 
         # Apply gradient updates
         with self.distributed.prepare_optimizer_update(self.optimizer):
@@ -298,7 +309,7 @@ class Trainer(BaseTrainer):
             if self.use_amp:
                 self.scaler.step(self.optimizer)
             else:
-                self.optimizer.step()
+                self.distributed.step(self.optimizer)
 
         if self.use_amp:
             # Update scaler in case of overflow/underflow
@@ -310,7 +321,7 @@ class Trainer(BaseTrainer):
             predictions = self.model.outputs_to_predictions(model_outputs)
             self.model.update_metrics(targets, predictions)
 
-        self.optimizer.zero_grad()
+        self.distributed.zero_grad(self.optimizer)
 
         return loss, all_losses
 
@@ -369,6 +380,7 @@ class Trainer(BaseTrainer):
         random_seed: int = default_random_seed,
         max_trials: int = 20,
         halving_limit: int = 3,
+        snapshot_weights: bool = True,
     ) -> int:
         logger.info("Tuning batch size...")
 
@@ -391,13 +403,22 @@ class Trainer(BaseTrainer):
         self.dist_model.train()  # Sets model training mode.
 
         evaluator = self._create_batch_size_evaluator()
-        try:
-            return evaluator.select_best_batch_size(len(training_set), max_batch_size, max_trials)
-        finally:
-            # Restore original parameters to defaults
-            self.skip_save_model = skip_save_model
-            self.skip_save_progress = skip_save_progress
-            self.skip_save_log = skip_save_log
+        with tempfile.TemporaryDirectory() as tmpdir:
+            if snapshot_weights:
+                checkpoint = Checkpoint(model=self.dist_model, optimizer=self.optimizer, scheduler=self.scheduler)
+                checkpoint.save(os.path.join(tmpdir, "latest.ckpt"), global_step=0)
+            try:
+                best_batch_size = evaluator.select_best_batch_size(len(training_set), max_batch_size, max_trials)
+                return self.distributed.broadcast_object(best_batch_size)
+            finally:
+                # Restore original parameters to defaults
+                self.skip_save_model = skip_save_model
+                self.skip_save_progress = skip_save_progress
+                self.skip_save_log = skip_save_log
+                if snapshot_weights:
+                    if self.distributed.prepare_before_load():
+                        self.prepare()
+                    self.resume_weights_and_optimizer(str(tmpdir), checkpoint)
 
     def _create_batch_size_evaluator(self) -> BatchSizeEvaluator:
         trainer = self
@@ -408,6 +429,7 @@ class Trainer(BaseTrainer):
                 trainer.optimizer.zero_grad()
 
             def step(self, batch_size: int):
+                trainer.distributed.set_batch_size(trainer.dist_model, batch_size)
                 inputs = {
                     input_feature_name: input_feature.create_sample_input(batch_size=batch_size).to(trainer.device)
                     for input_feature_name, input_feature in trainer.model.input_features.items()
@@ -631,6 +653,9 @@ class Trainer(BaseTrainer):
         self.distributed.sync_optimizer(self.optimizer)
         self.scheduler.load_state_dict(self.distributed.broadcast_object(self.scheduler.state_dict()))
 
+        # For DeepSpeed, we need to set the batch size here in case it was modfied during auto-tuning
+        self.distributed.set_batch_size(self.dist_model, self.batch_size)
+
         set_random_seed(self.random_seed)
 
         try:
@@ -785,7 +810,7 @@ class Trainer(BaseTrainer):
         early_stopping_steps: int,
     ) -> bool:
         """Completes up to one epoch through the data."""
-        self.optimizer.zero_grad()
+        self.distributed.zero_grad(self.optimizer)
         batch_idx = 0
         while not batcher.last_batch() and progress_tracker.steps < self.total_steps:
             progress_tracker.learning_rate = self.optimizer.param_groups[0]["lr"]
@@ -1200,7 +1225,7 @@ class Trainer(BaseTrainer):
         return self.distributed.local_rank()
 
     def barrier(self):
-        self.distributed.allreduce(torch.as_tensor([0], dtype=torch.int))
+        self.distributed.barrier()
 
     def callback(self, fn, coordinator_only=True):
         if not coordinator_only or self.is_coordinator():

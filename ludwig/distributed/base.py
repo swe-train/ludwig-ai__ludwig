@@ -6,9 +6,14 @@ import torch
 from torch import nn
 from torch.optim import Optimizer
 
+from ludwig.utils.torch_utils import get_torch_device
+
 if TYPE_CHECKING:
     from ray.train.backend import BackendConfig
     from ray.train.data_parallel_trainer import DataParallelTrainer
+
+    from ludwig.modules.lr_scheduler import LRScheduler
+    from ludwig.schema.trainer import ECDTrainerConfig
 
 
 class DistributedStrategy(ABC):
@@ -20,11 +25,24 @@ class DistributedStrategy(ABC):
     """
 
     @abstractmethod
-    def wrap_model(self, model: nn.Module) -> nn.Module:
+    def prepare(
+        self, model: nn.Module, optimizer: Optimizer, lr_scheduler: "LRScheduler", trainer_config: "ECDTrainerConfig"
+    ) -> Tuple[nn.Module, Optimizer, "LRScheduler"]:
         pass
 
-    @abstractmethod
-    def wrap_optimizer(self, optimizer: Optimizer, model: nn.Module, gradient_accumulation_steps: int) -> Optimizer:
+    def to_device(self, model: nn.Module) -> nn.Module:
+        return model.to(get_torch_device())
+
+    def backward(self, loss: torch.Tensor, model: nn.Module):
+        loss.backward()
+
+    def step(self, optimizer: Optimizer, *args, **kwargs):
+        optimizer.step(*args, **kwargs)
+
+    def zero_grad(self, optimizer: Optimizer):
+        optimizer.zero_grad()
+
+    def set_batch_size(self, model: nn.Module, batch_size: int):
         pass
 
     @abstractmethod
@@ -117,13 +135,25 @@ class DistributedStrategy(ABC):
 
         return wrapped
 
+    def allow_gradient_accumulation(self) -> bool:
+        return True
+
+    def allow_mixed_precision(self) -> bool:
+        return True
+
+    def allow_clip_gradients(self) -> bool:
+        return True
+
+    def prepare_before_load(self) -> bool:
+        """True if we need to call `prepare` again before loading a checkpoint."""
+        return False
+
 
 class LocalStrategy(DistributedStrategy):
-    def wrap_model(self, model: nn.Module) -> nn.Module:
-        return model
-
-    def wrap_optimizer(self, optimizer: Optimizer, model: nn.Module, gradient_accumulation_steps: int) -> Optimizer:
-        return optimizer
+    def prepare(
+        self, model: nn.Module, optimizer: Optimizer, lr_scheduler: "LRScheduler", trainer_config: "ECDTrainerConfig"
+    ) -> Tuple[nn.Module, Optimizer, "LRScheduler"]:
+        return model, optimizer, lr_scheduler
 
     def size(self) -> int:
         return 1

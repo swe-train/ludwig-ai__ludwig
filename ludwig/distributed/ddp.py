@@ -1,7 +1,8 @@
 import contextlib
 import logging
+import os
 import socket
-from typing import Any, Callable, Dict, Optional, Tuple, Type
+from typing import Any, Callable, Dict, Optional, Tuple, Type, TYPE_CHECKING
 
 import torch
 import torch.distributed as dist
@@ -15,6 +16,10 @@ from torchmetrics.utilities.distributed import gather_all_tensors
 
 from ludwig.distributed.base import DistributedStrategy
 
+if TYPE_CHECKING:
+    from ludwig.modules.lr_scheduler import LRScheduler
+    from ludwig.schema.trainer import ECDTrainerConfig
+
 
 class DDPStrategy(DistributedStrategy):
     def __init__(self):
@@ -24,11 +29,10 @@ class DDPStrategy(DistributedStrategy):
     def _log_on_init(self):
         logging.info("Using DDP strategy")
 
-    def wrap_model(self, model: nn.Module) -> nn.Module:
-        return DDP(model)
-
-    def wrap_optimizer(self, optimizer: Optimizer, model: nn.Module, gradient_accumulation_steps: int) -> Optimizer:
-        return optimizer
+    def prepare(
+        self, model: nn.Module, optimizer: Optimizer, lr_scheduler: "LRScheduler", trainer_config: "ECDTrainerConfig"
+    ) -> Tuple[nn.Module, Optimizer, "LRScheduler"]:
+        return DDP(model), optimizer, lr_scheduler
 
     def size(self) -> int:
         return dist.get_world_size()
@@ -110,6 +114,11 @@ class DDPStrategy(DistributedStrategy):
 
 
 def local_rank_and_size() -> Tuple[int, int]:
+    # DeepSpeed CLI and other tools may set these environment variables for us.
+    local_rank, local_size = os.environ.get("LOCAL_RANK"), os.environ.get("LOCAL_SIZE")
+    if local_rank is not None and local_size is not None:
+        return int(local_rank), int(local_size)
+
     # Gather the rank and hostnames from every worker so we can count up how many belong to the same host, which
     # constitutes the local group.
     rank = dist.get_rank()
