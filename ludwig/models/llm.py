@@ -1,6 +1,5 @@
 import logging
 import os
-import tempfile
 from typing import Dict, Optional, Tuple, Union
 
 import numpy as np
@@ -49,19 +48,8 @@ class LLM(BaseModel):
         self.curr_device = torch.device("cpu")  # model initially loaded onto cpu
         logger.info("Done.")
 
-        # If a tuner config is provided, we want to wrap the model with a PEFT model
-        # for fine-tuning.
-        if self.config_obj.tuner:
-            from peft import get_peft_model
-
-            peft_config = self.config_obj.tuner.to_config(task_type="CAUSAL_LM", tokenizer_name_or_path=self.model_name)
-            self.model = get_peft_model(self.model, peft_config)
-
-            logger.info("==================================================")
-            logger.info("Trainable Parameter Summary For Fine-Tuning:")
-            logger.info(f"Fine-tuning with tuner: {self.config_obj.tuner.type}")
-            self.model.print_trainable_parameters()
-            logger.info("==================================================")
+        # Initialize the adapter if a tuner config is provided
+        self.initialize_adapter()
 
         # Determines the maximum length of the context (input + output tokens)
         if hasattr(self.model.config, "max_sequence_length"):
@@ -112,6 +100,21 @@ class LLM(BaseModel):
 
         clear_data_cache()
 
+    def initialize_adapter(self):
+        # If a tuner config is provided, we want to wrap the model with a PEFT model
+        # for fine-tuning.
+        if self.config_obj.tuner:
+            from peft import get_peft_model
+
+            peft_config = self.config_obj.tuner.to_config(task_type="CAUSAL_LM", tokenizer_name_or_path=self.model_name)
+            self.model = get_peft_model(self.model, peft_config)
+
+            logger.info("==================================================")
+            logger.info("Trainable Parameter Summary For Fine-Tuning:")
+            logger.info(f"Fine-tuning with tuner: {self.config_obj.tuner.type}")
+            self.model.print_trainable_parameters()
+            logger.info("==================================================")
+
     def to_device(self, device):
         device = torch.device(device)
         if device == self.curr_device:
@@ -133,9 +136,13 @@ class LLM(BaseModel):
                 )
             )
             # we save and reload the weights to ensure that they can be sharded across the GPUs using `from_pretrained`
-            with tempfile.TemporaryDirectory() as tmpdir:
-                self.model.save_pretrained(tmpdir)
-                self.model = AutoModelForCausalLM.from_pretrained(tmpdir, **model_kwargs)
+            # with tempfile.TemporaryDirectory() as tmpdir:
+            #     if self.config_obj.tuner:
+            #         pass
+            #     else:
+            #         self.model.save_pretrained(tmpdir)
+            self.model = AutoModelForCausalLM.from_pretrained(self.model_name, **model_kwargs)
+            self.initialize_adapter()
 
             self.eval_loss_metric = self.eval_loss_metric.to(device)
             self.eval_additional_losses_metrics = self.eval_additional_losses_metrics.to(device)
@@ -452,10 +459,13 @@ def realign_target_and_prediction_tensors(
         # Pad the predictions.
         zeros_to_add = target_length - prediction_length
         predictions[of_name][PREDICTIONS] = F.pad(predictions[of_name][PREDICTIONS], (0, zeros_to_add))
+        predictions[of_name][PREDICTIONS] = predictions[of_name][PREDICTIONS].type(torch.float32)
         # Pad probabilities with 0s. Pad the second last dimension with 0s.
         predictions[of_name][PROBABILITIES] = F.pad(predictions[of_name][PROBABILITIES], (0, 0, 0, zeros_to_add))
+        predictions[of_name][PROBABILITIES] = predictions[of_name][PROBABILITIES].type(torch.float32)
         # Pad logits with 0s. Pad the second last dimension with 0s.
         predictions[of_name][LOGITS] = F.pad(predictions[of_name][LOGITS], (0, 0, 0, zeros_to_add))
+        predictions[of_name][LOGITS] = predictions[of_name][LOGITS].type(torch.float32)
     else:
         targets[of_name] = F.pad(targets[of_name], (0, prediction_length - target_length))
 
