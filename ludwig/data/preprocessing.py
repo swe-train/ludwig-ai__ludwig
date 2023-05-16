@@ -1324,15 +1324,7 @@ def build_dataset(
     # At this point, there should be no missing values left in the dataframe, unless
     # the DROP_ROW preprocessing option was selected, in which case we need to drop those
     # rows.
-    len_dataset_before_drop_rows = len(dataset)
     dataset = dataset.dropna()
-    len_dataset_after_drop_rows = len(dataset)
-
-    if len_dataset_before_drop_rows != len_dataset_after_drop_rows:
-        logger.warning(
-            f"Dropped a total of {len_dataset_before_drop_rows - len_dataset_after_drop_rows} rows out of "
-            f"{len_dataset_before_drop_rows} due to missing values"
-        )
 
     # NaNs introduced by outer join change dtype of dataset cols (upcast to float64), so we need to cast them back.
     col_name_to_dtype = {}
