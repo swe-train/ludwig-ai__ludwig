@@ -1,20 +1,18 @@
 import logging
 import re
-from typing import TYPE_CHECKING, Any, Dict, List, Union
+from typing import Any, Dict, List, Union
 
 import torch
-from transformers import PreTrainedTokenizer
+from transformers import PreTrainedModel, PreTrainedTokenizer
 
 from ludwig.api_annotations import DeveloperAPI
 from ludwig.constants import CATEGORY, LOGITS, PREDICTIONS, PROBABILITIES, TEXT
 from ludwig.decoders.base import Decoder
+from ludwig.decoders.llm_utils import CategoryStoppingCriteria
 from ludwig.decoders.registry import register_decoder
 from ludwig.decoders.utils import extract_generated_tokens
 from ludwig.schema.decoders.llm_decoders import CategoryParserDecoderConfig, TextParserDecoderConfig
 from ludwig.utils.strings_utils import get_tokenizer
-
-if TYPE_CHECKING:
-    from ludwig.models.llm import LLM
 
 logger = logging.getLogger(__name__)
 
@@ -215,7 +213,7 @@ class CategoryParserDecoder(Decoder):
 class CategoryGeneratorDecoder(Decoder):
     def __init__(
         self,
-        model: "LLM",
+        model: PreTrainedModel,
         tokenizer: PreTrainedTokenizer,
         decoder_config: CategoryParserDecoderConfig,
         **kwargs,
@@ -225,7 +223,13 @@ class CategoryGeneratorDecoder(Decoder):
         self.model = model
         self.tokenizer = tokenizer
         self.config = decoder_config
-        self.prompt_ids = self.tokenizer(self.config.prompt, return_tensors="pt").input_ids
+        self.prompt_ids = self.tokenizer(
+            self.config.prompt, return_tensors="pt", add_prefix_space=True, add_special_tokens=False
+        ).input_ids
+
+        self.vocab = list(self.config.str2idx.keys())
+        self.vocab_token_ids = tokenizer(self.vocab, add_prefix_space=True, add_special_tokens=False).input_ids
+        self.max_new_tokens = max(len(x) for x in self.vocab_token_ids)
 
     @staticmethod
     def get_schema_cls():
@@ -242,25 +246,19 @@ class CategoryGeneratorDecoder(Decoder):
         input_ids = torch.cat([inputs, self.prompt_ids], dim=-1)
         response = self.model.generate(
             input_ids,
-            max_new_tokens=self.max_string_token_length,
+            max_new_tokens=self.max_new_tokens,
+            force_words_ids=self.vocab_token_ids,
             num_return_sequences=1,
-            temperature=self.temperature,
-            stopping_criteria=[StringStoppingCriteria(self.tokenizer, len(input_tokens[0]))],
-            pad_token_id=self.tokenizer.eos_token_id,
+            no_repeat_ngram_size=1,
+            remove_invalid_values=True,
+            stopping_criteria=[CategoryStoppingCriteria(self.tokenizer, len(input_ids[0], self.vocab))],
         )
 
         # Some models output the prompt as part of the response
         # This removes the prompt from the response if it is present
-        if len(response[0]) >= len(input_tokens[0]) and (response[0][: len(input_tokens[0])] == input_tokens).all():
-            response = response[0][len(input_tokens[0]) :]
+        if len(response[0]) >= len(input_ids[0]) and (response[0][: len(input_ids[0])] == input_ids).all():
+            response = response[0][len(input_ids[0]) :]
         if response.shape[0] == 1:
             response = response[0]
 
-        response = self.tokenizer.decode(response, skip_special_tokens=True)
-
-        self.debug("[generate_string]", "|" + response + "|")
-
-        if response.count('"') < 1:
-            return response
-
-        return response.split('"')[0].strip()
+        return self.tokenizer.decode(response, skip_special_tokens=True)
