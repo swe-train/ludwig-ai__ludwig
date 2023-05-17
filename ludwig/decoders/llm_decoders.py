@@ -1,8 +1,9 @@
 import logging
 import re
-from typing import Any, Dict, List, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Union
 
 import torch
+from transformers import PreTrainedTokenizer
 
 from ludwig.api_annotations import DeveloperAPI
 from ludwig.constants import CATEGORY, LOGITS, PREDICTIONS, PROBABILITIES, TEXT
@@ -11,6 +12,9 @@ from ludwig.decoders.registry import register_decoder
 from ludwig.decoders.utils import extract_generated_tokens
 from ludwig.schema.decoders.llm_decoders import CategoryParserDecoderConfig, TextParserDecoderConfig
 from ludwig.utils.strings_utils import get_tokenizer
+
+if TYPE_CHECKING:
+    from ludwig.models.llm import LLM
 
 logger = logging.getLogger(__name__)
 
@@ -204,3 +208,59 @@ class CategoryParserDecoder(Decoder):
             PROBABILITIES: torch.tensor(probabilities, dtype=torch.float32, device=outputs_device),
             LOGITS: torch.tensor(logits, dtype=torch.float32, device=outputs_device),
         }
+
+
+@DeveloperAPI
+@register_decoder("category_generator", [CATEGORY])
+class CategoryGeneratorDecoder(Decoder):
+    def __init__(
+        self,
+        model: "LLM",
+        tokenizer: PreTrainedTokenizer,
+        decoder_config: CategoryParserDecoderConfig,
+        **kwargs,
+    ):
+        super().__init__()
+
+        self.model = model
+        self.tokenizer = tokenizer
+        self.config = decoder_config
+        self.prompt_ids = self.tokenizer(self.config.prompt, return_tensors="pt").input_ids
+
+    @staticmethod
+    def get_schema_cls():
+        return CategoryParserDecoderConfig
+
+    @property
+    def input_shape(self):
+        return self.input_size
+
+    def get_prediction_set(self):
+        return {LOGITS, PREDICTIONS, PROBABILITIES}
+
+    def forward(self, inputs: List[torch.Tensor], **kwargs):
+        input_ids = torch.cat([inputs, self.prompt_ids], dim=-1)
+        response = self.model.generate(
+            input_ids,
+            max_new_tokens=self.max_string_token_length,
+            num_return_sequences=1,
+            temperature=self.temperature,
+            stopping_criteria=[StringStoppingCriteria(self.tokenizer, len(input_tokens[0]))],
+            pad_token_id=self.tokenizer.eos_token_id,
+        )
+
+        # Some models output the prompt as part of the response
+        # This removes the prompt from the response if it is present
+        if len(response[0]) >= len(input_tokens[0]) and (response[0][: len(input_tokens[0])] == input_tokens).all():
+            response = response[0][len(input_tokens[0]) :]
+        if response.shape[0] == 1:
+            response = response[0]
+
+        response = self.tokenizer.decode(response, skip_special_tokens=True)
+
+        self.debug("[generate_string]", "|" + response + "|")
+
+        if response.count('"') < 1:
+            return response
+
+        return response.split('"')[0].strip()

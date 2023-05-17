@@ -80,3 +80,27 @@ class CategoryParserDecoderConfig(BaseParserDecoderConfig, BaseDecoderConfig):
         allow_none=True,
         description="The label to use if the parser fails to parse the input.",
     )
+
+
+@DeveloperAPI
+@register_decoder_config("category_generator", [CATEGORY], model_types=[MODEL_LLM])
+@ludwig_dataclass
+class CategoryGeneratorDecoderConfig(BaseDecoderConfig):
+    @classmethod
+    def module_name(cls):
+        return "CategoryGeneratorDecoder"
+
+    type: str = schema_utils.ProtectedString("category_generator")
+
+    prompt: str = schema_utils.String(
+        default="Output the result as one of the following categories: {input}",
+        allow_none=False,
+        description="The prompt to use to generate the category.",
+    )
+
+    str2idx: Dict[str, int] = schema_utils.Dict(
+        default=None,
+        allow_none=True,
+        description="A dictionary of label classes and their corresponding "
+        "indices that will be used to parse the output of the LLM.",
+    )
