@@ -11,6 +11,7 @@ from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
     AutoTokenizer,
+    BitsAndBytesConfig,
     GenerationConfig,
     GPT2Tokenizer,
     GPT2TokenizerFast,
@@ -75,6 +76,19 @@ class DictWrapper:
         self.obj.update(modules)
 
 
+def print_trainable_parameters(model):
+    """Prints the number of trainable parameters in the model."""
+    trainable_params = 0
+    all_param = 0
+    for _, param in model.named_parameters():
+        all_param += param.numel()
+        if param.requires_grad:
+            trainable_params += param.numel()
+    print(
+        f"trainable params: {trainable_params} || all params: {all_param} || trainable%: {100 * trainable_params / all_param}"  # noqa
+    )
+
+
 class LLM(BaseModel):
     @staticmethod
     def type() -> str:
@@ -94,8 +108,17 @@ class LLM(BaseModel):
 
         self.model_name = self.config_obj.model_name
 
+        quantization_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16,
+        )
+
         logger.info("Loading large language model...")
-        self.model = AutoModelForCausalLM.from_pretrained(self.config_obj.model_name)
+        self.model = AutoModelForCausalLM.from_pretrained(
+            self.config_obj.model_name, quantization_config=quantization_config
+        )
         self.curr_device = torch.device("cpu")  # model initially loaded onto cpu
         logger.info("Done.")
 
@@ -162,17 +185,19 @@ class LLM(BaseModel):
     def initialize_adapter(self):
         """If an adapter config is provided, we want to wrap the model with a PEFT model for fine-tuning."""
         if self.config_obj.adapter:
-            from peft import get_peft_model
+            from peft import get_peft_model, prepare_model_for_kbit_training
 
             peft_config = self.config_obj.adapter.to_config(
                 task_type="CAUSAL_LM", tokenizer_name_or_path=self.model_name
             )
             self.model = get_peft_model(self.model, peft_config)
+            self.model = prepare_model_for_kbit_training(self.model)
 
             logger.info("==================================================")
             logger.info("Trainable Parameter Summary For Fine-Tuning:")
             logger.info(f"Fine-tuning with adapter: {self.config_obj.adapter.type}")
-            self.model.print_trainable_parameters()
+            # self.model.print_trainable_parameters()
+            print_trainable_parameters(self.model)
             logger.info("==================================================")
 
     def to_device(self, device):
