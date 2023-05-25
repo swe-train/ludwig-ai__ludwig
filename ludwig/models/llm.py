@@ -187,11 +187,13 @@ class LLM(BaseModel):
         if self.config_obj.adapter:
             from peft import get_peft_model, prepare_model_for_kbit_training
 
+            self.model.gradient_checkpointing_enable()
+            self.model = prepare_model_for_kbit_training(self.model)
+
             peft_config = self.config_obj.adapter.to_config(
                 task_type="CAUSAL_LM", tokenizer_name_or_path=self.model_name
             )
             self.model = get_peft_model(self.model, peft_config)
-            self.model = prepare_model_for_kbit_training(self.model)
 
             logger.info("==================================================")
             logger.info("Trainable Parameter Summary For Fine-Tuning:")
@@ -217,7 +219,7 @@ class LLM(BaseModel):
             model_kwargs.update(
                 dict(
                     low_cpu_mem_usage=True,
-                    torch_dtype=torch.float16,
+                    # torch_dtype=torch.float16,
                     device_map="auto",
                     max_memory={i: "13GiB" for i in range(num_gpus)},
                 )
@@ -228,16 +230,30 @@ class LLM(BaseModel):
                 self.model.save_pretrained(tmpdir)
 
                 if self.config_obj.adapter:
-                    from peft import PeftModel
+                    from peft import PeftModel, prepare_model_for_kbit_training
+
+                    quantization_config = BitsAndBytesConfig(
+                        load_in_4bit=True,
+                        bnb_4bit_use_double_quant=True,
+                        bnb_4bit_quant_type="nf4",
+                        bnb_4bit_compute_dtype=torch.bfloat16,
+                    )
 
                     self.model = AutoModelForCausalLM.from_pretrained(
                         self.model_name,
+                        quantization_config=quantization_config,
                         **model_kwargs,
                     )
+
+                    self.model.gradient_checkpointing_enable()
+                    self.model = prepare_model_for_kbit_training(self.model)
+
                     self.model = PeftModel.from_pretrained(
                         tmpdir,
                         torch_dtype=torch.float16,
                     )
+
+                    self.model = prepare_model_for_kbit_training(self.model)
                 else:
                     self.model = AutoModelForCausalLM.from_pretrained(
                         tmpdir,
