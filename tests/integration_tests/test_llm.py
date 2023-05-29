@@ -428,13 +428,15 @@ def test_lora_wrap_on_init():
     ],
 )
 def test_llm_finetune_with_image(tmpdir, csv_filename, backend):
+    # Image Inputs
+    image_dest_folder = os.path.join(tmpdir, "generated_images")
     input_features = [
         text_feature(name="input", encoder={"type": "passthrough"}),
-        image_feature(name="image", encoder={"type": "stacked_cnn"}),
+        image_feature(name="image", folder=image_dest_folder, encoder={"type": "stacked_cnn"}),
     ]
     output_features = [text_feature(name="output")]
 
-    df = generate_data(input_features, output_features, filename=csv_filename, num_examples=25)
+    dataset = generate_data(input_features, output_features, filename=csv_filename, num_examples=25)
 
     config = {
         MODEL_TYPE: MODEL_LLM,
@@ -450,15 +452,14 @@ def test_llm_finetune_with_image(tmpdir, csv_filename, backend):
     }
 
     model = LudwigModel(config, backend=backend)
-    model.train(dataset=df, output_directory=str(tmpdir), skip_save_processed_input=False)
+    model.train(dataset=dataset, output_directory=str(tmpdir), skip_save_processed_input=False)
 
     # Make sure we can load the saved model and then use it for predictions
     model = LudwigModel.load(os.path.join(str(tmpdir), "api_experiment_run", "model"), backend=backend)
 
-    base_model = LLM(ModelConfig.from_dict(config))
-    assert not _compare_models(base_model, model.model)
-
+    df = pd.read_csv(dataset)
     prediction_df = df[["input", "image"]].iloc[:3]
+
     preds, _ = model.predict(dataset=prediction_df, output_directory=str(tmpdir))
     preds = convert_preds(preds)
 

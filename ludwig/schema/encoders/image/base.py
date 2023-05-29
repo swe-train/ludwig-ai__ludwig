@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING, Union
 
 from ludwig.api_annotations import DeveloperAPI
-from ludwig.constants import IMAGE
+from ludwig.constants import IMAGE, MODEL_ECD, MODEL_LLM
 from ludwig.schema import utils as schema_utils
 from ludwig.schema.encoders.base import BaseEncoderConfig
 from ludwig.schema.encoders.utils import register_encoder_config
@@ -21,7 +21,7 @@ class ImageEncoderConfig(BaseEncoderConfig):
 
 
 @DeveloperAPI
-@register_encoder_config("stacked_cnn", IMAGE)
+@register_encoder_config("stacked_cnn", IMAGE, model_types=[MODEL_ECD, MODEL_LLM])
 @ludwig_dataclass
 class Stacked2DCNNConfig(ImageEncoderConfig):
     @staticmethod
