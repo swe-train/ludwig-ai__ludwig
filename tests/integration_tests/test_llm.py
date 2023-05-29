@@ -24,7 +24,7 @@ from ludwig.constants import (
 from ludwig.models.llm import LLM
 from ludwig.schema.model_types.base import ModelConfig
 from ludwig.utils.types import DataFrame
-from tests.integration_tests.utils import category_feature, generate_data, text_feature
+from tests.integration_tests.utils import category_feature, generate_data, image_feature, text_feature
 
 LOCAL_BACKEND = {"type": "local"}
 TEST_MODEL_NAME = "hf-internal-testing/tiny-random-GPTJForCausalLM"
@@ -86,6 +86,14 @@ def convert_preds(preds: DataFrame):
     if isinstance(preds, pd.DataFrame):
         return preds.to_dict()
     return preds.compute().to_dict()
+
+
+def _compare_models(model_1: torch.nn.Module, model_2: torch.nn.Module) -> bool:
+    # Source: https://discuss.pytorch.org/t/check-if-models-have-same-weights/4351/6
+    for key_item_1, key_item_2 in zip(model_1.state_dict().items(), model_2.state_dict().items()):
+        if not torch.equal(key_item_1[1], key_item_2[1]):
+            return False
+    return True
 
 
 @pytest.mark.llm
@@ -412,9 +420,46 @@ def test_lora_wrap_on_init():
     assert isinstance(model.model, PeftModel)
 
 
-def _compare_models(model_1: torch.nn.Module, model_2: torch.nn.Module) -> bool:
-    # Source: https://discuss.pytorch.org/t/check-if-models-have-same-weights/4351/6
-    for key_item_1, key_item_2 in zip(model_1.state_dict().items(), model_2.state_dict().items()):
-        if not torch.equal(key_item_1[1], key_item_2[1]):
-            return False
-    return True
+@pytest.mark.llm
+@pytest.mark.parametrize(
+    "backend",
+    [
+        pytest.param(LOCAL_BACKEND, id="local"),
+    ],
+)
+def test_llm_finetune_with_image(tmpdir, csv_filename, backend):
+    input_features = [
+        text_feature(name="input", encoder={"type": "passthrough"}),
+        image_feature(name="image", encoder={"type": "stacked_cnn"}),
+    ]
+    output_features = [text_feature(name="output")]
+
+    df = generate_data(input_features, output_features, filename=csv_filename, num_examples=25)
+
+    config = {
+        MODEL_TYPE: MODEL_LLM,
+        MODEL_NAME: TEST_MODEL_NAME,
+        ADAPTER: "lora",
+        INPUT_FEATURES: input_features,
+        OUTPUT_FEATURES: output_features,
+        TRAINER: {
+            TYPE: "finetune",
+            BATCH_SIZE: 8,
+            EPOCHS: 2,
+        },
+    }
+
+    model = LudwigModel(config, backend=backend)
+    model.train(dataset=df, output_directory=str(tmpdir), skip_save_processed_input=False)
+
+    # Make sure we can load the saved model and then use it for predictions
+    model = LudwigModel.load(os.path.join(str(tmpdir), "api_experiment_run", "model"), backend=backend)
+
+    base_model = LLM(ModelConfig.from_dict(config))
+    assert not _compare_models(base_model, model.model)
+
+    prediction_df = df[["input", "image"]].iloc[:3]
+    preds, _ = model.predict(dataset=prediction_df, output_directory=str(tmpdir))
+    preds = convert_preds(preds)
+
+    assert preds
