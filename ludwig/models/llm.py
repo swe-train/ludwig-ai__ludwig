@@ -26,6 +26,7 @@ from ludwig.features.feature_utils import LudwigFeatureDict
 from ludwig.features.text_feature import TextOutputFeature
 from ludwig.globals import MODEL_WEIGHTS_FILE_NAME
 from ludwig.models.base import BaseModel
+from ludwig.modules.llm_projection_modules import create_projection
 from ludwig.schema.features.base import BaseOutputFeatureConfig, FeatureCollection
 from ludwig.schema.model_types.llm import LLMModelConfig
 from ludwig.utils.augmentation_utils import AugmentationPipelines
@@ -129,6 +130,11 @@ class LLM(BaseModel):
             raise KeyError(
                 f"An input feature has a name that conflicts with a class attribute of torch's ModuleDict: {e}"
             )
+
+        # Don't wrap these, as we want to train the projection layers
+        self.input_projections = LudwigFeatureDict()
+        for name, input_feature in self.input_features.items():
+            self.input_projections.set(name, create_projection(self, input_feature))
 
         # ================ Outputs ================
         self.output_feature_type = self.config_obj.output_features[0].type
@@ -263,17 +269,14 @@ class LLM(BaseModel):
             A dictionary of output {feature name}::{tensor_name} -> output tensor.
         """
 
-        input_ids, target_ids = self._unpack_inputs(inputs)
-
-        # Generate merged input_id, target_id pairs for the model, and create corresponding attention masks
-        model_inputs, attention_masks = self._generate_merged_ids(input_ids, target_ids)
+        inputs_embeds, attention_mask = self.embed_inputs(inputs)
 
         # Wrap with flash attention backend for faster generation
         with torch.backends.cuda.sdp_kernel(enable_flash=True, enable_math=False, enable_mem_efficient=False) if (
             torch.cuda.is_available() and next(self.model.parameters()).device.type == "cuda"
         ) else contextlib.nullcontext():
             # Forward pass using PEFT wrapped model for fine-tuning
-            model_outputs = self.model(input_ids=model_inputs, attention_mask=attention_masks).get(LOGITS)
+            model_outputs = self.model(inputs_embeds=inputs_embeds, attention_mask=attention_mask).get(LOGITS)
 
         if self.output_feature_type != TEXT:
             # Pass generated tokens through decoder after averaging the token probabilities
@@ -309,7 +312,7 @@ class LLM(BaseModel):
     ) -> Dict[str, torch.Tensor]:
         """Generates tokens using the model."""
 
-        input_ids, _ = self._unpack_inputs(inputs)
+        input_embeds, _ = self.encode(inputs)
 
         with torch.no_grad():
             input_lengths = []
@@ -352,7 +355,7 @@ class LLM(BaseModel):
 
         return outputs
 
-    def _unpack_inputs(
+    def embed_inputs(
         self,
         inputs: Union[
             Dict[str, torch.Tensor], Dict[str, np.ndarray], Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]
@@ -372,10 +375,43 @@ class LLM(BaseModel):
 
         assert list(inputs.keys()) == self.input_features.keys()
 
-        input_ids = self.get_input_ids(inputs)
-        target_ids = self.get_target_ids(targets) if targets else None
+        projections = []
+        prompt_projection = None
+        attention_mask = None
 
-        return input_ids, target_ids
+        for input_feature_name, input_values in inputs.items():
+            encoder = self.input_features.get(input_feature_name)
+            if encoder.type() == TEXT:
+                # encoder_output = encoder(input_values)
+                # merged_ids = encoder_output["encoder_output"]
+
+                merged_ids = input_values.type(torch.int32)
+                if targets:
+                    target_ids = self.get_target_ids(targets)
+
+                    # Generate merged input_id, target_id pairs for the model, and create corresponding attention masks
+                    merged_ids, attention_mask = self._generate_merged_ids(merged_ids, target_ids)
+
+                projector = self.input_projections.get(input_feature_name)
+                projector_output = projector(merged_ids)
+                prompt_projection = projector_output
+            else:
+                encoder_output = encoder(input_values)
+
+                projector = self.input_projections.get(input_feature_name)
+                projector_output = projector(encoder_output["encoder_output"])
+                projections.append(projector_output)
+
+        # Prompt projection must come last
+        projections.append(prompt_projection)
+
+        for p in projections:
+            print(p.shape, p.dtype)
+
+        # Merge the projections
+        merged_projections = torch.cat(projections, dim=1)
+
+        return merged_projections, attention_mask
 
     def get_input_ids(
         self,

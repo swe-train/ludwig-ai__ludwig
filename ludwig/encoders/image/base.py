@@ -145,6 +145,7 @@ class Stacked2DCNN(ImageEncoder):
         hidden = self.conv_stack_2d(inputs)
         hidden = self.flatten(hidden)
         outputs = self.fc_stack(hidden)
+        print("outputs", outputs.shape)
 
         return {"encoder_output": outputs}
 
