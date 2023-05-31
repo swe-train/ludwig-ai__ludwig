@@ -1,0 +1,32 @@
+model_type: llm
+model_name: bigscience/bloom500b
+input_features:
+  - name: foo
+    type: text
+  - name: bar
+    type: text
+
+output_features:
+  - name: baz
+    type: number
+
+trainer:
+  type: reward
+  reward:
+    chosen_key: foo
+    rejected_key: bar
+    reward_key: baz
+  batch_size: 4
+  epochs: 3
+
+"""
+Considerations:
+- `reward` output feature will not be provided in the dataset columns during 
+  preprocessing. We use the output feature to define the decoder head for the llm
+- when we do config validation, we need to dynamically check the trainer type. 
+  If the trainer type is reward, do the following:
+  - check in the config that there are exactly two text input features (chosen and rejected) and
+    one number output feature (reward) and make sure that the reward.chosen_key, rejected_key, and reward_key
+    match with the corresponding features
+  - automatically replace the number output feature loss to be RewardLoss.
+"""

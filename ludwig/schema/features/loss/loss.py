@@ -460,3 +460,26 @@ class CORNLossConfig(BaseLossConfig):
     @property
     def class_similarities_temperature(self) -> int:
         return 0
+
+
+@DeveloperAPI
+@register_loss([NUMBER])
+@ludwig_dataclass
+class RewardLossConfig(BaseLossConfig):
+    """TODO: write description
+    """
+
+    type: str = schema_utils.ProtectedString(
+        REWARD,
+        description="Type of loss.",
+    )
+
+    weight: float = schema_utils.NonNegativeFloat(
+        default=1.0,
+        description="Weight of the loss.",
+        parameter_metadata=LOSS_METADATA["RewardLoss"]["weight"],
+    )
+
+    @classmethod
+    def name(self) -> str:
+        return "Reward Model Loss"

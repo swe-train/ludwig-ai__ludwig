@@ -176,6 +176,7 @@ class LLM(BaseModel):
         ],
     ):
         """Returns the input ids for the text feature input."""
+        # TODO: grab the input ids from all input features?
         return inputs[self.config_obj.input_features[0].name].type(torch.int32)
 
     def forward(
