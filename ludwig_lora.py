@@ -40,6 +40,7 @@ config = yaml.safe_load(
             split:
                 type: fixed
                 column: split
+            global_max_sequence_length: 64
         trainer:
             type: finetune
             batch_size: 8
