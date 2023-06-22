@@ -1,3 +1,4 @@
+import re
 from collections import defaultdict
 
 from ludwig.api_annotations import DeveloperAPI
@@ -152,3 +153,11 @@ def get_output_feature_conds(model_type: str):
         feature_cond = schema_utils.create_cond({"type": feature_type}, feature_props)
         conds.append(feature_cond)
     return conds
+
+
+def get_sanitized_feature_name(feature_name: str) -> str:
+    """Replaces non-word characters (anything other than alphanumeric or _) with _.
+
+    Used in model config initialization and sanitize_column_names(), which is called during dataset building.
+    """
+    return re.sub(r"[\W]", "_", feature_name)

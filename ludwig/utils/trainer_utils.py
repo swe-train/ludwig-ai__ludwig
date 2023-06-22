@@ -10,6 +10,7 @@ except ImportError:
 from ludwig.api_annotations import DeveloperAPI
 from ludwig.constants import COMBINED, LOSS
 from ludwig.features.base_feature import OutputFeature
+from ludwig.features.utils import get_sanitized_feature_name
 from ludwig.models.base import BaseModel
 from ludwig.modules.metric_modules import get_best_function
 from ludwig.utils.data_utils import save_json
@@ -200,6 +201,7 @@ class ProgressTracker:
         return ProgressTracker(**loaded)
 
     def log_metrics(self):
+        print("Hello. Logging MLFlow metrics.")
         log_metrics = {
             "batch_size": self.batch_size,
             "epoch": self.epoch,
@@ -228,7 +230,9 @@ class ProgressTracker:
                         # namedtuple. The last element of the TrainerMetric namedtuple is the actual metric value.
                         #
                         # TODO: when loading an existing model, this loses metric values for all but the last epoch.
-                        log_metrics[f"{metrics_dict_name}.{feature_name}.{metric_name}"] = metrics_tuples[-1][-1]
+                        log_metrics[
+                            f"{metrics_dict_name}.{get_sanitized_feature_name(feature_name)}.{metric_name}"
+                        ] = metrics_tuples[-1][-1]
 
         # Add best metrics.
         for feature_name, metrics in self.best_eval_train_metrics.items():
