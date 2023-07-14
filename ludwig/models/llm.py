@@ -6,6 +6,8 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
+from accelerate import init_empty_weights, load_checkpoint_and_dispatch
+from huggingface_hub import snapshot_download
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, GenerationConfig, LlamaConfig
 
 from ludwig.constants import IGNORE_INDEX_TOKEN_ID, LOGITS, MODEL_LLM, PREDICTIONS, TEXT
@@ -90,9 +92,14 @@ class LLM(BaseModel):
 
         self.model_name = self.config_obj.base_model
 
-        logger.info("Loading large language model...")
-        self.model = AutoModelForCausalLM.from_pretrained(self.config_obj.base_model)
-        self.curr_device = torch.device("cpu")  # model initially loaded onto cpu
+        logger.info("Downloading snapshot of model weights and initializing model...")
+        print("Reached here")
+        self.weights_location = snapshot_download(repo_id=self.config_obj.base_model)
+        print("Reached here 2")
+        # Initialize the model without using any RAM so that we can load arbitrarily large models.
+        with init_empty_weights():
+            self.model = AutoModelForCausalLM.from_pretrained(self.config_obj.base_model, device_map="meta")
+        self.curr_device = torch.device("meta")  # model initially loaded onto meta
         logger.info("Done.")
 
         # Determines the maximum length of the context (input + output tokens)
@@ -195,11 +202,10 @@ class LLM(BaseModel):
 
     def to_device(self, device):
         device = torch.device(device)
+        log_once(f"Moving LLM from '{self.curr_device}' to '{device}'.")
 
-        if device == self.curr_device:
-            return self
-        else:
-            log_once(f"Moving LLM from '{self.curr_device}' to '{device}'.")
+        # Actually loads the weights into memory from the meta device in the LLM constructor
+        self.model = load_checkpoint_and_dispatch(self.model, checkpoint=self.weights_location, device_map="auto")
 
         model_kwargs = {}
         num_gpus = torch.cuda.device_count()
