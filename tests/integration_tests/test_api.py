@@ -26,6 +26,7 @@ from ludwig.callbacks import Callback
 from ludwig.constants import BATCH_SIZE, ENCODER, TRAINER, TYPE
 from ludwig.globals import MODEL_HYPERPARAMETERS_FILE_NAME
 from ludwig.models.inference import InferenceModule
+from ludwig.schema.model_types.ecd import ECDModelConfig
 from ludwig.utils.data_utils import read_csv
 from tests.integration_tests.utils import (
     category_feature,
@@ -687,3 +688,22 @@ def test_saved_weights_in_checkpoint(tmpdir):
         input_feature_encoder = saved_input_feature["encoder"]
         assert "saved_weights_in_checkpoint" in input_feature_encoder
         assert input_feature_encoder["saved_weights_in_checkpoint"]
+
+
+def test_api_intent_classification_config_object(csv_filename):
+    config = ECDModelConfig(
+        input_features=[SequenceInput(encoder={"reduce_output": "sum"})],
+        output_features=[CategoryOutput(decoder={"vocab_size": 5}, reduce_input="sum")],
+        combiner=ConcatCombinerConfig(output_size=14),
+        trainer=TrainerConfig(epochs=2, batch_size=128),
+    )
+
+    # Single sequence input, single category output
+    input_features = [sequence_feature(encoder={"reduce_output": "sum"})]
+    output_features = [category_feature(decoder={"vocab_size": 5}, reduce_input="sum")]
+
+    # Generate test data
+    rel_path = generate_data(input_features, output_features, csv_filename)
+    for encoder in ENCODERS:
+        input_features[0][ENCODER][TYPE] = encoder
+        run_api_experiment(input_features, output_features, data_csv=rel_path)
