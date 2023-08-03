@@ -27,6 +27,7 @@ marshmallow-dataclass==8.5.4
 
 # Fuck, I think this causes another dependency tree nightmare, there are other packages that internally use pydantic 1
 pydantic>=2
+jsonref
 
 tensorboard
 torchmetrics>=0.11.0,<=0.11.4
