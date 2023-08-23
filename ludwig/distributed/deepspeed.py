@@ -83,7 +83,7 @@ class DeepSpeedStrategy(DDPStrategy):
             trainer_config.batch_size if isinstance(trainer_config.batch_size, int) else MIN_POSSIBLE_BATCH_SIZE
         )
         optimizer_cls, optimizer_kwargs = get_optimizer_class_and_kwargs(trainer_config.optimizer, base_learning_rate)
-        breakpoint()
+        # breakpoint()
         ds_config = {
             "amp": {
                 "enabled": trainer_config.use_mixed_precision,

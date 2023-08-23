@@ -182,7 +182,7 @@ class Trainer(BaseTrainer):
             logger.info("Training with torchdynamo compiled model")
 
         # ================ Optimizer tuning ================
-        breakpoint()
+        # breakpoint()
         self.gradient_clipping_config = create_clipper(config.gradient_clipping)
 
         self.config = config
@@ -219,7 +219,12 @@ class Trainer(BaseTrainer):
         self.scheduler = LRScheduler(self.config.learning_rate_scheduler, self.optimizer)
 
     def train_step(
-        self, inputs: Dict[str, torch.Tensor], targets: Dict[str, torch.Tensor], should_step: bool = True
+        self,
+        inputs: Dict[str, torch.Tensor],
+        targets: Dict[str, torch.Tensor],
+        train_summary_writer: SummaryWriter,
+        step: int,
+        should_step: bool = True
     ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         """Performs a single training step.
 
@@ -297,11 +302,16 @@ class Trainer(BaseTrainer):
             # https://pytorch.org/docs/master/notes/amp_examples.html#gradient-clipping
             self.scaler.unscale_(self.optimizer)
 
+        # breakpoint()
+        for name, param in self.dist_model.named_parameters():
+            if param.grad is not None:
+                train_summary_writer.add_histogram(name + '/grad', param.grad, global_step=step)
+
         gradients_before_clipping = [
             param.grad.clone() if param.grad is not None else None for param in self.dist_model.parameters()
         ]
 
-        breakpoint()
+        # breakpoint()
         if self.distributed.allow_clip_gradients():
             # Clip gradients
             self.clip_grads(variables)
@@ -353,7 +363,7 @@ class Trainer(BaseTrainer):
 
     def clip_grads(self, variables):
         """Applies gradient clipping."""
-        breakpoint()
+        # breakpoint()
         if self.gradient_clipping_config.clipglobalnorm:
             torch.nn.utils.clip_grad_norm_(variables, max_norm=self.gradient_clipping_config.clipglobalnorm)
         if self.gradient_clipping_config.clipnorm:
@@ -973,7 +983,9 @@ class Trainer(BaseTrainer):
                 for o_feat in self.model.output_features.values()
             }
 
-            loss, all_losses = self.train_step(inputs, targets, should_step=should_step)
+            loss, all_losses = self.train_step(
+                inputs, targets, train_summary_writer, progress_tracker.steps, should_step=should_step
+            )
 
             if should_step:
                 # Update LR schduler here instead of train loop to avoid updating during batch size tuning, etc.
@@ -1070,6 +1082,8 @@ class Trainer(BaseTrainer):
                 self.train_step(
                     inputs,
                     targets,
+                    None,
+                    None,
                 )
 
                 progress_bar.update(1)
