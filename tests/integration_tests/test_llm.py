@@ -389,6 +389,9 @@ def test_llm_finetuning_strategies(tmpdir, csv_filename, backend, finetune_strat
             BATCH_SIZE: 8,
             EPOCHS: 2,
             "learning_rate": 1.0,
+            "gradient_clipping": {
+                "clipglobalnorm": None
+            }
         },
         BACKEND: backend,
     }
