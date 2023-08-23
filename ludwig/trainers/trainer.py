@@ -182,6 +182,7 @@ class Trainer(BaseTrainer):
             logger.info("Training with torchdynamo compiled model")
 
         # ================ Optimizer tuning ================
+        breakpoint()
         self.gradient_clipping_config = create_clipper(config.gradient_clipping)
 
         self.config = config
@@ -272,6 +273,10 @@ class Trainer(BaseTrainer):
 
         # Begin the backward pass
         variables = self.dist_model.parameters()
+        initial_gradients = [
+            param.grad.clone() if param.grad is not None else None for param in self.dist_model.parameters()
+        ]
+
         if self.use_amp:
             self.scaler.scale(loss).backward()
         else:
@@ -292,9 +297,37 @@ class Trainer(BaseTrainer):
             # https://pytorch.org/docs/master/notes/amp_examples.html#gradient-clipping
             self.scaler.unscale_(self.optimizer)
 
+        gradients_before_clipping = [
+            param.grad.clone() if param.grad is not None else None for param in self.dist_model.parameters()
+        ]
+
+        breakpoint()
         if self.distributed.allow_clip_gradients():
             # Clip gradients
             self.clip_grads(variables)
+
+        gradients_after_clipping = [
+            param.grad.clone() if param.grad is not None else None for param in self.dist_model.parameters()
+        ]
+
+        # Print or inspect the gradients before and after clipping
+        for i, (param, grad_before, grad_after) in enumerate(
+            zip(self.dist_model.parameters(), gradients_before_clipping, gradients_after_clipping)
+        ):
+            equal = True
+            if grad_before is not None and grad_after is not None:
+                equal = torch.equal(grad_before, grad_after)
+
+            if not equal:
+                print(f"Parameter {i+1}: {param}")
+                print("Initial Gradient:")
+                print(grad_before)
+                print("Gradient After Clipping:")
+                print(grad_after)
+                # if grad_before is not None and grad_after is not None:
+                #     print("Gradients Equal:")
+                #     print(torch.equal(grad_before, grad_after))
+                print("-" * 20)
 
         # Apply gradient updates
         with self.distributed.prepare_optimizer_update(self.optimizer):
@@ -320,8 +353,9 @@ class Trainer(BaseTrainer):
 
     def clip_grads(self, variables):
         """Applies gradient clipping."""
+        breakpoint()
         if self.gradient_clipping_config.clipglobalnorm:
-            torch.nn.utils.clip_grad_norm_(variables, self.gradient_clipping_config.clipglobalnorm)
+            torch.nn.utils.clip_grad_norm_(variables, max_norm=self.gradient_clipping_config.clipglobalnorm)
         if self.gradient_clipping_config.clipnorm:
             torch.nn.utils.clip_grad_norm_(variables, self.gradient_clipping_config.clipnorm)
         if self.gradient_clipping_config.clipvalue:
