@@ -112,12 +112,12 @@ class BaseModel(LudwigModule, metaclass=ABCMeta):
 
     @staticmethod
     def build_single_output(
-        feature_config: BaseOutputFeatureConfig, output_features: Optional[Dict[str, OutputFeature]]
+        feature_config: BaseOutputFeatureConfig, output_features: Optional[Dict[str, OutputFeature]], **kwargs
     ) -> OutputFeature:
         """Builds a single output feature from the output feature definition."""
         logger.debug(f"Output {feature_config.type} feature {feature_config.name}")
         output_feature_class = get_from_registry(feature_config.type, get_output_type_registry())
-        output_feature_obj = output_feature_class(feature_config, output_features=output_features)
+        output_feature_obj = output_feature_class(feature_config, output_features=output_features, **kwargs)
         return output_feature_obj
 
     def get_model_inputs(self):

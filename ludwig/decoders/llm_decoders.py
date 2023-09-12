@@ -228,11 +228,15 @@ class MedusaDecoder(Decoder):
         self,
         input_size: int,
         decoder_config=None,
+        base_model=None,
         **kwargs,
     ):
         super().__init__()
         self.config = decoder_config
         self.input_size = input_size
+
+        self.hidden_size = base_model.lm_head.weight.shape[-1]
+        self.vocab_size = base_model.lm_head.weight.shape[0]
 
         # Tokenizer
         self.tokenizer_type = self.config.tokenizer
@@ -263,6 +267,13 @@ class MedusaDecoder(Decoder):
                 for _ in range(self.config.num_medusa_heads)
             ]
         )
+
+        # Ensure medusa_head's dtype and device align with the base_model
+        self.medusa_head.to(base_model.dtype).to(base_model.device)
+
+        for i in range(self.num_medusa_heads):
+            # Initialize the weights of each medusa_head using the base model's weights
+            self.medusa_head[i][-1].weight.data[:] = base_model.lm_head.weight.data[:]
 
     @staticmethod
     def get_schema_cls():

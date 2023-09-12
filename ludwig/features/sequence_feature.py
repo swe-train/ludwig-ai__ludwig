@@ -338,7 +338,7 @@ class SequenceOutputFeature(SequenceFeatureMixin, OutputFeature):
         **kwargs,
     ):
         super().__init__(output_feature_config, output_features, **kwargs)
-        self.decoder_obj = self.initialize_decoder(output_feature_config.decoder)
+        self.decoder_obj = self.initialize_decoder(output_feature_config.decoder, **kwargs)
         self._setup_loss()
         self._setup_metrics()
 

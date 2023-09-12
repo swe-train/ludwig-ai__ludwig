@@ -190,19 +190,12 @@ class LLM(BaseModel):
                 # token in the sequence. These head layers can add additional dimensions to the
                 # logits tensor, beyond the vocab_size dimension.
                 input_size=self.input_shape[-1] if self.output_feature_type == TEXT else self.model_config.vocab_size,
+                base_model=self.model,
             )
         )
 
         # Extract the decoder object for the forward pass
         self._output_feature_decoder = ModuleWrapper(self.output_features.items()[0][1])
-
-        # HACK: Ensure medusa_head's dtype and device align with the base_model
-        decoder = self.output_feature_decoder
-        decoder.medusa_head.to(self.model.dtype).to(self.model.device)
-
-        for i in range(decoder.num_medusa_heads):
-            # Initialize the weights of each medusa_head using the base model's weights
-            self.medusa_head[i][-1].weight.data[:] = self.model.lm_head.weight.data[:]
 
         clear_data_cache()
 
@@ -345,7 +338,10 @@ class LLM(BaseModel):
 
     @classmethod
     def build_outputs(
-        cls, output_feature_configs: FeatureCollection[BaseOutputFeatureConfig], input_size: int
+        cls,
+        output_feature_configs: FeatureCollection[BaseOutputFeatureConfig],
+        input_size: int,
+        base_model: torch.nn.Module,
     ) -> Dict[str, OutputFeature]:
         """Builds and returns output feature."""
         # TODO: only single task currently
@@ -356,7 +352,7 @@ class LLM(BaseModel):
         output_feature_config.input_size = input_size
 
         output_features = {}
-        output_feature = cls.build_single_output(output_feature_config, output_features)
+        output_feature = cls.build_single_output(output_feature_config, output_features, base_model=base_model)
         output_features[output_feature_config.name] = output_feature
 
         return output_features
@@ -403,8 +399,8 @@ class LLM(BaseModel):
         hidden_states = outputs[0].clone()
         medusa_logits = []
         # TODO: Consider parallelizing this loop for efficiency?
-        for i in range(self.output_feature_decoder.num_medusa_heads):
-            medusa_logits.append(self.output_feature_decoder.medusa_head[i](hidden_states))
+        for i in range(self.output_feature_decoder.decoder_obj.num_medusa_heads):
+            medusa_logits.append(self.output_feature_decoder.decoder_obj.medusa_head[i](hidden_states))
         
         decoder_outputs = torch.stack(medusa_logits, dim=0)
 

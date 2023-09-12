@@ -425,22 +425,16 @@ def test_llm_finetuning_strategies(tmpdir, csv_filename, backend, finetune_strat
 
 @pytest.mark.llm
 def test_llm_finetune_medusa(tmpdir, csv_filename):
-    if not torch.cuda.is_available() or torch.cuda.device_count() == 0:
-        pytest.skip("Skip: quantization requires GPU and none are available.")
-
     input_features = [text_feature(name="input", encoder={"type": "passthrough"})]
     output_features = [text_feature(name="output", decoder={"type": "medusa"})]
 
     df = generate_data(input_features, output_features, filename=csv_filename, num_examples=25)
 
-    model_name = TEST_MODEL_NAME
+    model_name = "HuggingFaceM4/tiny-random-LlamaForCausalLM"
 
     config = {
         MODEL_TYPE: MODEL_LLM,
         BASE_MODEL: model_name,
-        ADAPTER: {
-            TYPE: "lora",
-        },
         INPUT_FEATURES: input_features,
         OUTPUT_FEATURES: output_features,
         TRAINER: {

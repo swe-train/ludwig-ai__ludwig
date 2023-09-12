@@ -266,13 +266,13 @@ class OutputFeature(BaseFeature, LudwigModule, ABC):
         """Returns the Tensor data type feature outputs."""
         pass
 
-    def initialize_decoder(self, decoder_config):
+    def initialize_decoder(self, decoder_config, **kwargs):
         # Input to the decoder is the output feature's FC hidden layer.
         decoder_config.input_size = self.fc_stack.output_shape[-1]
         decoder_cls = get_decoder_cls(self.type(), decoder_config.type)
-        decoder_schema = decoder_cls.get_schema_cls().Schema()
-        decoder_params_dict = decoder_schema.dump(decoder_config)
-        return decoder_cls(decoder_config=decoder_config, **decoder_params_dict)
+        # decoder_schema = decoder_cls.get_schema_cls().Schema()
+        # decoder_params_dict = decoder_schema.dump(decoder_config)
+        return decoder_cls(input_size=decoder_config.input_size, decoder_config=decoder_config, **kwargs)
 
     def train_loss(self, targets: Tensor, predictions: Dict[str, Tensor], feature_name):
         loss_class = type(self.train_loss_function)
