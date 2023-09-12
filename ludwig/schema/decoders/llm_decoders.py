@@ -80,3 +80,26 @@ class CategoryExtractorDecoderConfig(BaseExtractorDecoderConfig, BaseDecoderConf
         allow_none=True,
         description="The label to use if the parser fails to parse the input.",
     )
+
+
+@DeveloperAPI
+@register_decoder_config("medusa", [TEXT], model_types=[MODEL_LLM])
+@ludwig_dataclass
+class MedusaDecoderConfig(BaseExtractorDecoderConfig, BaseDecoderConfig):
+    @classmethod
+    def module_name(cls):
+        return "MedusaDecoder"
+
+    type: str = schema_utils.ProtectedString("medusa")
+
+    num_medusa_heads: int = schema_utils.Integer(
+        default=2,
+        allow_none=False,
+        description="The number of Medusa heads to use.",
+    )
+
+    num_medusa_layers: int = schema_utils.Integer(
+        default=1,
+        allow_none=False,
+        description="The number of Medusa layers to use.",
+    )

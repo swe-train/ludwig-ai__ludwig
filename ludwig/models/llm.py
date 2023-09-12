@@ -196,6 +196,14 @@ class LLM(BaseModel):
         # Extract the decoder object for the forward pass
         self._output_feature_decoder = ModuleWrapper(self.output_features.items()[0][1])
 
+        # HACK: Ensure medusa_head's dtype and device align with the base_model
+        decoder = self.output_feature_decoder
+        decoder.medusa_head.to(self.model.dtype).to(self.model.device)
+
+        for i in range(decoder.num_medusa_heads):
+            # Initialize the weights of each medusa_head using the base model's weights
+            self.medusa_head[i][-1].weight.data[:] = self.model.lm_head.weight.data[:]
+
         clear_data_cache()
 
     def create_feature_dict(self) -> LudwigFeatureDict:
@@ -359,6 +367,7 @@ class LLM(BaseModel):
             Dict[str, torch.Tensor], Dict[str, np.ndarray], Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]
         ],
         mask=None,
+        output_orig=False,
     ) -> Dict[str, torch.Tensor]:
         """Produces logits tensor for finetuning the model.
 
@@ -380,21 +389,40 @@ class LLM(BaseModel):
             input_ids, target_ids, self.tokenizer, self.global_max_sequence_length
         )
 
-        # Wrap with flash attention backend for faster generation
-        with torch.backends.cuda.sdp_kernel(enable_flash=True, enable_math=False, enable_mem_efficient=False) if (
-            torch.cuda.is_available() and self.curr_device.type == "cuda"
-        ) else contextlib.nullcontext():
-            model_outputs = self.model(input_ids=self.model_inputs, attention_mask=self.attention_masks).get(LOGITS)
+        with torch.inference_mode():
+            # Pass input through the base model
+            outputs = self.model.model(
+                input_ids=input_ids,
+                attention_mask=self.attention_masks,
+                # past_key_values=past_key_values,
+                # position_ids=position_ids,
+            )
+            # if output_orig:
+            # orig = self.base_model.lm_head(outputs[0])
+        # Clone the output hidden states
+        hidden_states = outputs[0].clone()
+        medusa_logits = []
+        # TODO: Consider parallelizing this loop for efficiency?
+        for i in range(self.output_feature_decoder.num_medusa_heads):
+            medusa_logits.append(self.output_feature_decoder.medusa_head[i](hidden_states))
+        
+        decoder_outputs = torch.stack(medusa_logits, dim=0)
 
-        if self.output_feature_type != TEXT:
-            # Pass generated tokens through decoder after averaging the token probabilities
-            # This is required for the classification head for the classifier decoder
-            model_outputs = torch.mean(model_outputs, dim=1)
+        # # Wrap with flash attention backend for faster generation
+        # with torch.backends.cuda.sdp_kernel(enable_flash=True, enable_math=False, enable_mem_efficient=False) if (
+        #     torch.cuda.is_available() and self.curr_device.type == "cuda"
+        # ) else contextlib.nullcontext():
+        #     model_outputs = self.model(input_ids=self.model_inputs, attention_mask=self.attention_masks).get(LOGITS)
 
-        if self.output_feature_type == TEXT:
-            decoder_outputs = model_outputs
-        else:
-            decoder_outputs = self.output_feature_decoder.decoder_obj(model_outputs)
+        # if self.output_feature_type != TEXT:
+        #     # Pass generated tokens through decoder after averaging the token probabilities
+        #     # This is required for the classification head for the classifier decoder
+        #     model_outputs = torch.mean(model_outputs, dim=1)
+
+        # if self.output_feature_type == TEXT:
+        #     decoder_outputs = model_outputs
+        # else:
+        #     decoder_outputs = self.output_feature_decoder.decoder_obj(model_outputs)
 
         # Set the output feature tensor to the decoder outputs (logits)
         outputs = {}

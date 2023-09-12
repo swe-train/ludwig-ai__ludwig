@@ -3,13 +3,19 @@ import re
 from typing import Any, Dict, List, Union
 
 import torch
+from torch import nn
 
 from ludwig.api_annotations import DeveloperAPI
 from ludwig.constants import CATEGORY, LOGITS, PREDICTIONS, PROBABILITIES, TEXT
 from ludwig.decoders.base import Decoder
 from ludwig.decoders.registry import register_decoder
 from ludwig.decoders.utils import extract_generated_tokens
-from ludwig.schema.decoders.llm_decoders import CategoryExtractorDecoderConfig, TextExtractorDecoderConfig
+from ludwig.modules.llama_modules import ResBlock
+from ludwig.schema.decoders.llm_decoders import (
+    CategoryExtractorDecoderConfig,
+    MedusaDecoderConfig,
+    TextExtractorDecoderConfig
+)
 from ludwig.utils.strings_utils import get_tokenizer
 
 logger = logging.getLogger(__name__)
@@ -208,4 +214,84 @@ class CategoryExtractorDecoder(Decoder):
             PREDICTIONS: torch.tensor(matched_labels, device=outputs_device),
             PROBABILITIES: torch.tensor(probabilities, dtype=torch.float32, device=outputs_device),
             LOGITS: torch.tensor(logits, dtype=torch.float32, device=outputs_device),
+        }
+    
+
+@DeveloperAPI
+@register_decoder("medusa", [TEXT])
+class MedusaDecoder(Decoder):
+    """
+    Implementation from: https://github.com/FasterDecoding/Medusa/blob/main/medusa/model/medusa_model.py
+    """
+    
+    def __init__(
+        self,
+        input_size: int,
+        decoder_config=None,
+        **kwargs,
+    ):
+        super().__init__()
+        self.config = decoder_config
+        self.input_size = input_size
+
+        # Tokenizer
+        self.tokenizer_type = self.config.tokenizer
+        self.pretrained_model_name_or_path = self.config.pretrained_model_name_or_path
+        self.vocab_file = self.config.vocab_file
+
+        # Load tokenizer required for decoding the output from the generate
+        # function of the text input feature for LLMs.
+        self.tokenizer = get_tokenizer(self.tokenizer_type, self.vocab_file, self.pretrained_model_name_or_path)
+        if hasattr(self.tokenizer, "tokenizer"):
+            # Transformer Tokenizers
+            self.tokenizer_vocab_size = self.tokenizer.tokenizer.vocab_size
+        else:
+            # TorchText Tokenizers
+            self.tokenizer_vocab_size = len(self.tokenizer.vocab)
+
+        # Maximum number of new tokens that will be generated
+        self.max_sequence_length = self.max_new_tokens = self.config.max_new_tokens
+
+        # Create a list of Medusa heads
+        self.num_medusa_heads = self.config.num_medusa_heads
+        self.medusa_head = nn.ModuleList(
+            [
+                nn.Sequential(
+                    *([ResBlock(self.hidden_size)] * self.config.num_medusa_layers),
+                    nn.Linear(self.hidden_size, self.vocab_size, bias=False),
+                )
+                for _ in range(self.config.num_medusa_heads)
+            ]
+        )
+
+    @staticmethod
+    def get_schema_cls():
+        return MedusaDecoderConfig
+
+    @property
+    def input_shape(self):
+        return self.input_size
+
+    def get_prediction_set(self):
+        return {LOGITS, PREDICTIONS, PROBABILITIES}
+
+    def forward(self, inputs: List[torch.Tensor], **kwargs):
+        # Extract the sequences tensor from the LLMs forward pass
+        generated_outputs = extract_generated_tokens(
+            raw_generated_output_sequences=inputs,
+            llm_model_input_lengths=kwargs.get("llm_model_input_lengths", []),
+            max_new_tokens=self.max_new_tokens,
+            pad_sequence=True,
+        )
+        outputs_device = generated_outputs.device
+
+        return {
+            PREDICTIONS: generated_outputs,
+            # TODO(Arnav): Add support for probabilities and logits
+            PROBABILITIES: torch.zeros((len(generated_outputs), self.max_new_tokens, self.tokenizer_vocab_size)).to(
+                outputs_device
+            ),
+            LOGITS: torch.zeros((len(generated_outputs), self.max_new_tokens, self.tokenizer_vocab_size)).to(
+                outputs_device
+            ),
         }
