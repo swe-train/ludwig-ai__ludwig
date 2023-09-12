@@ -201,6 +201,11 @@ class SequenceSoftmaxCrossEntropyLoss(nn.Module, LogitsInputsMixin):
         return self.loss_fn(preds[1:].view(-1, preds.size(-1)), target[1:].view(-1))
 
 
+from transformers.trainer_pt_utils import LabelSmoother
+
+IGNORE_TOKEN_ID = LabelSmoother.ignore_index
+
+
 @register_loss(NextTokenSoftmaxCrossEntropyLossConfig)
 class NextTokenSoftmaxCrossEntropyLoss(nn.Module, LogitsInputsMixin):
     def __init__(self, config: NextTokenSoftmaxCrossEntropyLossConfig):
@@ -217,13 +222,29 @@ class NextTokenSoftmaxCrossEntropyLoss(nn.Module, LogitsInputsMixin):
         https://github.com/huggingface/transformers/blob/v4.29.1/src/transformers/models/bert/modeling_bert.py#LL1253C1-L1260C1 # noqa
         """
         target = target.long()
-        _, _, vocab_size = preds.shape
-        # logits for all tensors except n+1 since each logit tensor at position i represents the log probabilities for
-        # the next token i+1 if we were to do argmax on the logits ensor at position i.
-        shifted_predictions = preds[:, :-1, :]
-        # Shift by 1 since the logits at position 0 in predictions represent the log likelihood of target token 1
-        shifted_targets = target[:, 1:]
-        return self.loss_fn(shifted_predictions.reshape(-1, vocab_size), shifted_targets.reshape(-1))
+        # _, _, vocab_size = preds.shape
+        # # logits for all tensors except n+1 since each logit tensor at position i represents the log probabilities for
+        # # the next token i+1 if we were to do argmax on the logits ensor at position i.
+        # shifted_predictions = preds[:, :-1, :]
+        # # Shift by 1 since the logits at position 0 in predictions represent the log likelihood of target token 1
+        # shifted_targets = target[:, 1:]
+        # return self.loss_fn(shifted_predictions.reshape(-1, vocab_size), shifted_targets.reshape(-1))
+
+        medusa = target.shape[0]
+    
+        # Shift so that tokens < n predict n
+        loss = 0
+        for i in range(medusa):
+            medusa_logits = preds[i, :, : -(2 + i)].contiguous()
+            medusa_labels = target[..., 2 + i :].contiguous()
+            medusa_logits = medusa_logits.view(-1, preds.shape[-1])
+            medusa_labels = medusa_labels.view(-1)
+            medusa_labels = medusa_labels.to(medusa_logits.device)
+            loss_i = self.loss_fn(medusa_logits, medusa_labels)
+            loss += loss_i
+            not_ignore = medusa_labels.ne(IGNORE_TOKEN_ID)
+            medusa_labels = medusa_labels[not_ignore]
+        return loss
 
 
 @register_loss(SigmoidCrossEntropyLossConfig)

@@ -388,7 +388,7 @@ class LLM(BaseModel):
         with torch.inference_mode():
             # Pass input through the base model
             outputs = self.model.model(
-                input_ids=input_ids,
+                input_ids=self.model_inputs,
                 attention_mask=self.attention_masks,
                 # past_key_values=past_key_values,
                 # position_ids=position_ids,
