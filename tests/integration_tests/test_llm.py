@@ -423,6 +423,57 @@ def test_llm_finetuning_strategies(tmpdir, csv_filename, backend, finetune_strat
     assert preds
 
 
+@pytest.mark.llm
+def test_llm_finetune_medusa(tmpdir, csv_filename):
+    if not torch.cuda.is_available() or torch.cuda.device_count() == 0:
+        pytest.skip("Skip: quantization requires GPU and none are available.")
+
+    input_features = [text_feature(name="input", encoder={"type": "passthrough"})]
+    output_features = [text_feature(name="output", decoder={"type": "medusa"})]
+
+    df = generate_data(input_features, output_features, filename=csv_filename, num_examples=25)
+
+    model_name = TEST_MODEL_NAME
+
+    config = {
+        MODEL_TYPE: MODEL_LLM,
+        BASE_MODEL: model_name,
+        ADAPTER: {
+            TYPE: "lora",
+        },
+        INPUT_FEATURES: input_features,
+        OUTPUT_FEATURES: output_features,
+        TRAINER: {
+            TYPE: "finetune",
+            BATCH_SIZE: 8,
+            EPOCHS: 2,
+        },
+        BACKEND: LOCAL_BACKEND,
+    }
+
+    model = LudwigModel(config)
+    model.train(dataset=df, output_directory=str(tmpdir), skip_save_processed_input=False)
+
+    # prediction_df = pd.DataFrame(
+    #     [
+    #         {"input": "The food was amazing!", "output": "positive"},
+    #         {"input": "The service was terrible.", "output": "negative"},
+    #         {"input": "The food was okay.", "output": "neutral"},
+    #     ]
+    # )
+
+    # # Make sure we can load the saved model and then use it for predictions
+    # model = LudwigModel.load(os.path.join(str(tmpdir), "api_experiment_run", "model"), backend=backend)
+
+    # base_model = LLM(ModelConfig.from_dict(config))
+    # assert not _compare_models(base_model, model.model)
+
+    # preds, _ = model.predict(dataset=prediction_df, output_directory=str(tmpdir))
+    # preds = convert_preds(preds)
+
+    # assert preds
+
+
 def test_lora_wrap_on_init():
     from peft import PeftModel
     from transformers import PreTrainedModel
