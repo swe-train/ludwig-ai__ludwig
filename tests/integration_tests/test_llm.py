@@ -448,24 +448,20 @@ def test_llm_finetune_medusa(tmpdir, csv_filename):
     model = LudwigModel(config)
     model.train(dataset=df, output_directory=str(tmpdir), skip_save_processed_input=False)
 
-    # prediction_df = pd.DataFrame(
-    #     [
-    #         {"input": "The food was amazing!", "output": "positive"},
-    #         {"input": "The service was terrible.", "output": "negative"},
-    #         {"input": "The food was okay.", "output": "neutral"},
-    #     ]
-    # )
+    prediction_df = pd.DataFrame(
+        [
+            {"input": "The food was amazing!", "output": "positive"},
+            {"input": "The service was terrible.", "output": "negative"},
+            {"input": "The food was okay.", "output": "neutral"},
+        ]
+    )
 
-    # # Make sure we can load the saved model and then use it for predictions
-    # model = LudwigModel.load(os.path.join(str(tmpdir), "api_experiment_run", "model"), backend=backend)
+    # Make sure we can load the saved model and then use it for predictions
+    model = LudwigModel.load(os.path.join(str(tmpdir), "api_experiment_run", "model"), backend=LOCAL_BACKEND)
+    preds, _ = model.predict(dataset=prediction_df, output_directory=str(tmpdir))
+    preds = convert_preds(preds)
 
-    # base_model = LLM(ModelConfig.from_dict(config))
-    # assert not _compare_models(base_model, model.model)
-
-    # preds, _ = model.predict(dataset=prediction_df, output_directory=str(tmpdir))
-    # preds = convert_preds(preds)
-
-    # assert preds
+    assert preds
 
 
 def test_lora_wrap_on_init():
