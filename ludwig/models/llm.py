@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, GenerationConfig, LlamaConfig, PreTrainedModel
 
-from ludwig.constants import IGNORE_INDEX_TOKEN_ID, LOGITS, MODEL_LLM, PREDICTIONS, TEXT
+from ludwig.constants import IGNORE_INDEX_TOKEN_ID, LOGITS, MODEL_LLM, PREDICTIONS, STACKED_LOGITS, TEXT
 from ludwig.features.base_feature import ModuleWrapper, OutputFeature
 from ludwig.features.feature_utils import LudwigFeatureDict
 from ludwig.features.text_feature import TextOutputFeature
@@ -426,10 +426,11 @@ class LLM(BaseModel):
         # Set the output feature tensor to the decoder outputs (logits)
         outputs = {}
         of_name = self.config_obj.output_features[0].name
-        set_output_feature_tensor(outputs, of_name, LOGITS, decoder_outputs)
+        set_output_feature_tensor(outputs, of_name, LOGITS, orig)
 
         # Get predictions, probabilities and logits tensor from the output feature's predictions function
         outputs = self.output_features.get(of_name).predictions(outputs, of_name)
+        outputs[STACKED_LOGITS] = decoder_outputs
 
         # Cast to float32 for metric computation incase we're using deespeed with
         # reduced precision such as bfloat16.

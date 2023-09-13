@@ -231,7 +231,7 @@ def pad_target_tensor_for_fine_tuning(
         dictionaries.
     """
     target_length = targets.get(of_name).size()[1]
-    prediction_length = predictions[of_name].get(PREDICTIONS).size()[2]
+    prediction_length = predictions[of_name].get(PREDICTIONS).size()[1]
 
     if target_length == prediction_length:
         return targets

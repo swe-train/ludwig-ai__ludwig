@@ -24,7 +24,7 @@ from torch.nn import MSELoss as _MSELoss
 from torchmetrics.functional import mean_absolute_percentage_error
 
 import ludwig.utils.loss_utils as utils
-from ludwig.constants import IGNORE_INDEX_TOKEN_ID, LOGITS
+from ludwig.constants import IGNORE_INDEX_TOKEN_ID, LOGITS, STACKED_LOGITS
 from ludwig.modules.loss_implementations.corn import corn_loss
 from ludwig.schema.features.loss.loss import (
     BaseLossConfig,
@@ -67,6 +67,13 @@ class LogitsInputsMixin:
     def get_loss_inputs(cls):
         """Maps loss to the desired predicted input type."""
         return LOGITS
+    
+
+class StackedLogitsInputsMixin:
+    @classmethod
+    def get_loss_inputs(cls):
+        """Maps loss to the desired predicted input type."""
+        return STACKED_LOGITS
 
 
 @register_loss(MSELossConfig)
@@ -202,7 +209,7 @@ class SequenceSoftmaxCrossEntropyLoss(nn.Module, LogitsInputsMixin):
 
 
 @register_loss(NextTokenSoftmaxCrossEntropyLossConfig)
-class NextTokenSoftmaxCrossEntropyLoss(nn.Module, LogitsInputsMixin):
+class NextTokenSoftmaxCrossEntropyLoss(nn.Module, StackedLogitsInputsMixin):
     def __init__(self, config: NextTokenSoftmaxCrossEntropyLossConfig):
         super().__init__()
         self.loss_fn = nn.CrossEntropyLoss()
