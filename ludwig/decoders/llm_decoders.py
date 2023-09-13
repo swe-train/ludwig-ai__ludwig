@@ -16,6 +16,16 @@ from ludwig.schema.decoders.llm_decoders import (
     MedusaDecoderConfig,
     TextExtractorDecoderConfig
 )
+from ludwig.utils.medusa_utils import (
+    evaluate_posterior,
+    generate_candidates,
+    generate_medusa_buffers,
+    initialize_medusa,
+    initialize_past_key_values,
+    reset_medusa_mode,
+    tree_decoding,
+    update_inference_inputs
+)
 from ludwig.utils.strings_utils import get_tokenizer
 
 logger = logging.getLogger(__name__)
@@ -235,6 +245,7 @@ class MedusaDecoder(Decoder):
         self.config = decoder_config
         self.input_size = input_size
 
+        self.base_model = base_model
         self.hidden_size = base_model.lm_head.weight.shape[-1]
         self.vocab_size = base_model.lm_head.weight.shape[0]
 
@@ -285,6 +296,137 @@ class MedusaDecoder(Decoder):
 
     def get_prediction_set(self):
         return {LOGITS, PREDICTIONS, PROBABILITIES}
+    
+    def generate(
+        self,
+        input_ids,
+        attention_mask=None,
+        temperature=0.0,
+        max_steps=512,
+        # The hyperparameters below are for the Medusa
+        # top-1 prediciton for the next token, top-7 predictions for the next token, top-6 predictions for the next
+        # next token.
+        medusa_choices=[1, 7, 6],
+        posterior_threshold=0.09,  # threshold validation of Medusa output
+        # another threshold hyperparameter, recommended to be sqrt(posterior_threshold)
+        posterior_alpha=0.3,
+    ):
+        """
+        Source: https://github.com/FasterDecoding/Medusa/blob/main/medusa/model/medusa_model.py
+
+        Args:
+            input_ids (torch.Tensor, optional): Input token IDs.
+            attention_mask (torch.Tensor, optional): Attention mask.
+            temperature (float, optional): Temperature for typical acceptance.
+            medusa_choices (list, optional): A list of integers indicating the number of choices for each Medusa head.
+            posterior_threshold (float, optional): Threshold for posterior validation.
+            posterior_alpha (float, optional): Another threshold hyperparameter, recommended to be
+                sqrt(posterior_threshold).
+        Returns:
+            torch.Tensor: Output token IDs.
+
+        Warning: Only support batch size 1 for now!!
+        """
+        assert input_ids.shape[0] == 1, "Only support batch size 1 for now!!"
+        # Avoid modifying the input_ids in-place
+        input_ids = input_ids.clone()
+
+        # Cache medusa buffers (the fixed patterns for tree attention)
+        if hasattr(self, "medusa_choices") and self.medusa_choices == medusa_choices:
+            # Load the cached medusa buffer
+            medusa_buffers = self.medusa_buffers
+        else:
+            # Initialize the medusa buffer
+            medusa_buffers = generate_medusa_buffers(
+                medusa_choices, device=self.base_model.device
+            )
+        self.medusa_buffers = medusa_buffers
+        self.medusa_choices = medusa_choices
+
+        medusa_topk = medusa_choices[1:]
+
+        # Initialize the past key and value states
+        if hasattr(self, "past_key_values"):
+            past_key_values = self.past_key_values
+            past_key_values_data = self.past_key_values_data
+            current_length_data = self.current_length_data
+            # Reset the past key and value states
+            current_length_data.zero_()
+        else:
+            (
+                past_key_values,
+                past_key_values_data,
+                current_length_data,
+            ) = initialize_past_key_values(self.base_model)
+            self.past_key_values = past_key_values
+            self.past_key_values_data = past_key_values_data
+            self.current_length_data = current_length_data
+
+        input_len = input_ids.shape[1]
+
+        reset_medusa_mode(self)
+        # Initialize tree attention mask and process prefill tokens
+        medusa_logits, logits = initialize_medusa(
+            input_ids, self, medusa_buffers["medusa_attn_mask"], past_key_values
+        )
+
+        new_token = 0
+        results = []
+
+        for _ in range(max_steps):
+            # Generate candidates with topk predictions from Medusa heads
+            candidates, tree_candidates = generate_candidates(
+                medusa_logits,
+                logits,
+                medusa_topk,
+                medusa_buffers["tree_indices"],
+                temperature,
+            )
+
+            # Use tree attention to verify the candidates and get predictions
+            medusa_logits, logits, outputs = tree_decoding(
+                self,
+                tree_candidates,
+                past_key_values,
+                medusa_buffers["medusa_position_ids"],
+                input_ids,
+                medusa_buffers["retrieve_indices"],
+            )
+
+            # Evaluate the posterior of the candidates to select the accepted candidate prefix
+            best_candidate, accept_length = evaluate_posterior(
+                logits, candidates, temperature, posterior_threshold, posterior_alpha
+            )
+
+            # Update the input_ids and logits
+            input_ids, logits, medusa_logits, new_token = update_inference_inputs(
+                input_ids,
+                candidates,
+                best_candidate,
+                accept_length,
+                medusa_buffers["retrieve_indices"],
+                outputs,
+                logits,
+                medusa_logits,
+                new_token,
+                past_key_values_data,
+                current_length_data,
+            )
+
+            results.append(input_ids[0, input_len:])
+            # yield {
+            #     "text": self.tokenizer.decode(
+            #         input_ids[0, input_len:],
+            #         skip_special_tokens=True,
+            #         spaces_between_special_tokens=False,
+            #         clean_up_tokenization_spaces=True,
+            #     )
+            # }
+
+            if self.tokenizer.eos_token_id in input_ids[0, input_len:]:
+                break
+        
+        return torch.as_tensor(results)
 
     def forward(self, inputs: List[torch.Tensor], **kwargs):
         # Extract the sequences tensor from the LLMs forward pass
