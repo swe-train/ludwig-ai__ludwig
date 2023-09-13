@@ -24,7 +24,7 @@ from torch.nn import MSELoss as _MSELoss
 from torchmetrics.functional import mean_absolute_percentage_error
 
 import ludwig.utils.loss_utils as utils
-from ludwig.constants import LOGITS
+from ludwig.constants import IGNORE_INDEX_TOKEN_ID, LOGITS
 from ludwig.modules.loss_implementations.corn import corn_loss
 from ludwig.schema.features.loss.loss import (
     BaseLossConfig,
@@ -201,11 +201,6 @@ class SequenceSoftmaxCrossEntropyLoss(nn.Module, LogitsInputsMixin):
         return self.loss_fn(preds[1:].view(-1, preds.size(-1)), target[1:].view(-1))
 
 
-from transformers.trainer_pt_utils import LabelSmoother
-
-IGNORE_TOKEN_ID = LabelSmoother.ignore_index
-
-
 @register_loss(NextTokenSoftmaxCrossEntropyLossConfig)
 class NextTokenSoftmaxCrossEntropyLoss(nn.Module, LogitsInputsMixin):
     def __init__(self, config: NextTokenSoftmaxCrossEntropyLossConfig):
@@ -230,19 +225,24 @@ class NextTokenSoftmaxCrossEntropyLoss(nn.Module, LogitsInputsMixin):
         # shifted_targets = target[:, 1:]
         # return self.loss_fn(shifted_predictions.reshape(-1, vocab_size), shifted_targets.reshape(-1))
 
-        medusa = target.shape[0]
+        medusa = preds.shape[0]
+
+        print(preds.shape, target.shape)
     
         # Shift so that tokens < n predict n
         loss = 0
         for i in range(medusa):
-            medusa_logits = preds[i, :, : -(2 + i)].contiguous()
-            medusa_labels = target[..., 2 + i :].contiguous()
+            medusa_logits = preds[i, :, : -(1 + i)].contiguous()
+            medusa_labels = target[:, 1 + i :].contiguous()
+            print(medusa_logits.shape, medusa_labels.shape)
+
             medusa_logits = medusa_logits.view(-1, preds.shape[-1])
             medusa_labels = medusa_labels.view(-1)
             medusa_labels = medusa_labels.to(medusa_logits.device)
+            print(medusa_logits.shape, medusa_labels.shape)
             loss_i = self.loss_fn(medusa_logits, medusa_labels)
             loss += loss_i
-            not_ignore = medusa_labels.ne(IGNORE_TOKEN_ID)
+            not_ignore = medusa_labels.ne(IGNORE_INDEX_TOKEN_ID)
             medusa_labels = medusa_labels[not_ignore]
         return loss
 

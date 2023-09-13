@@ -384,6 +384,8 @@ class LLM(BaseModel):
         self.model_inputs, self.attention_masks = generate_merged_ids(
             input_ids, target_ids, self.tokenizer, self.global_max_sequence_length
         )
+        print(input_ids.shape, target_ids.shape)
+        print(self.model_inputs.shape)
 
         with torch.inference_mode():
             # Pass input through the base model
@@ -394,7 +396,8 @@ class LLM(BaseModel):
                 # position_ids=position_ids,
             )
             # if output_orig:
-            # orig = self.base_model.lm_head(outputs[0])
+            orig = self.model.lm_head(outputs[0])
+            print("ORIG", orig.shape)
         # Clone the output hidden states
         hidden_states = outputs[0].clone()
         medusa_logits = []
@@ -604,7 +607,9 @@ class LLM(BaseModel):
                 # Update the target tensor to enable text metric evaluation. This pads the target tensor with -100s
                 # to match the prediction length and depends on how much of the target tensor was included in the
                 # forward pass.
+                print("train_loss :: before pad", _targets[of_name].shape)
                 _targets = self._update_target_tensor_for_finetuning(_targets, _predictions, of_name)
+            print("train_loss :: after pad", _targets[of_name].shape)
 
             # TODO(Arnav): Seems like doing this again and going between these format types in unnecessary, but
             # refactor so that we don't have to do this at a later point.
