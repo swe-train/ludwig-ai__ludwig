@@ -477,19 +477,27 @@ class LLM(BaseModel):
                     enable_flash=True, enable_math=False, enable_mem_efficient=False
                 ) if (torch.cuda.is_available() and self.curr_device.type == "cuda") else contextlib.nullcontext():
                     # Generate text using the model
-                    model_outputs = self.model.generate(
+                    # model_outputs = self.model.generate(
+                    #     input_ids=input_ids_sample_no_padding,
+                    #     attention_mask=mask,
+                    #     generation_config=self.generation,
+                    #     return_dict_in_generate=True,
+                    #     output_scores=True,
+                    # )
+                    model_outputs = self.output_feature_decoder.decoder_obj.generate(
                         input_ids=input_ids_sample_no_padding,
                         attention_mask=mask,
-                        generation_config=self.generation,
-                        return_dict_in_generate=True,
-                        output_scores=True,
+                        # generation_config=self.generation,
+                        # return_dict_in_generate=True,
+                        # output_scores=True,
                     )
                     logger.info(
                         "Decoded generated output for the first example in batch: "
-                        f"{self.tokenizer.batch_decode(model_outputs.sequences, skip_special_tokens=True)[0]}"
+                        f"{self.tokenizer.batch_decode(model_outputs, skip_special_tokens=True)[0]}"
                     )
 
-                sequences_list.append(model_outputs.sequences[0])
+                # sequences_list.append(model_outputs.sequences[0])
+                sequences_list.append(model_outputs)
 
             # Extract the predictions, probabilities and logits from the model outputs
             # through the forward pass of the output feature
