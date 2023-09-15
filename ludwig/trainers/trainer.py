@@ -361,6 +361,7 @@ class Trainer(BaseTrainer):
 
     @classmethod
     def write_step_summary(cls, train_summary_writer, combined_loss, all_losses, step, learning_rate=None):
+        print("Called write_step_summary!")
         if not train_summary_writer:
             return
 
