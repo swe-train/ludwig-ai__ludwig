@@ -299,6 +299,8 @@ class LudwigModel:
 
         :return: (None) `None`
         """
+        print("Instantiating LudwigModel.")
+
         # check if config is a path or a dict
         if isinstance(config, str):  # assume path
             config_dict = load_yaml(config)
