@@ -368,8 +368,57 @@ class Trainer(BaseTrainer):
         # combined loss
         train_summary_writer.add_scalar("combined/step_training_loss", combined_loss, global_step=step)
 
+        memory_stats = torch.cuda.memory_stats()
+
+        train_summary_writer.add_scalar(
+            "gpu/allocated_bytes.all.current", memory_stats["allocated_bytes.all.current"], global_step=step
+        )
+        train_summary_writer.add_scalar(
+            "gpu/allocated_bytes.all.peak", memory_stats["allocated_bytes.all.peak"], global_step=step
+        )
+        train_summary_writer.add_scalar(
+            "gpu/allocated_bytes.all.allocated", memory_stats["allocated_bytes.all.allocated"], global_step=step
+        )
+        train_summary_writer.add_scalar(
+            "gpu/allocated_bytes.all.freed", memory_stats["allocated_bytes.all.freed"], global_step=step
+        )
+
+        train_summary_writer.add_scalar(
+            "gpu/reserved_bytes.all.current", memory_stats["reserved_bytes.all.current"], global_step=step
+        )
+        train_summary_writer.add_scalar(
+            "gpu/reserved_bytes.all.peak", memory_stats["reserved_bytes.all.peak"], global_step=step
+        )
+        train_summary_writer.add_scalar(
+            "gpu/reserved_bytes.all.allocated", memory_stats["reserved_bytes.all.allocated"], global_step=step
+        )
+        train_summary_writer.add_scalar(
+            "gpu/reserved_bytes.all.freed", memory_stats["reserved_bytes.all.freed"], global_step=step
+        )
+
+        train_summary_writer.add_scalar(
+            "gpu/active_bytes.all.current", memory_stats["active_bytes.all.current"], global_step=step
+        )
+        train_summary_writer.add_scalar(
+            "gpu/active_bytes.all.peak", memory_stats["active_bytes.all.peak"], global_step=step
+        )
+        train_summary_writer.add_scalar(
+            "gpu/active_bytes.all.allocated", memory_stats["active_bytes.all.allocated"], global_step=step
+        )
+        train_summary_writer.add_scalar(
+            "gpu/active_bytes.all.freed", memory_stats["active_bytes.all.freed"], global_step=step
+        )
+
         train_summary_writer.add_scalar("gpu/global_free_memory", torch.cuda.mem_get_info()[0], global_step=step)
         train_summary_writer.add_scalar("gpu/total_memory_occupied", torch.cuda.mem_get_info()[1], global_step=step)
+
+        train_summary_writer.add_scalar("gpu/memory_allocated", torch.cuda.memory_allocated(0), global_step=step)
+        train_summary_writer.add_scalar(
+            "gpu/max_memory_allocated", torch.cuda.max_memory_allocated(0), global_step=step
+        )
+
+        train_summary_writer.add_scalar("gpu/memory_reserved", torch.cuda.memory_reserved(0), global_step=step)
+        train_summary_writer.add_scalar("gpu/max_memory_reserved", torch.cuda.max_memory_reserved(0), global_step=step)
 
         # all other losses
         for feature_name, loss in all_losses.items():
