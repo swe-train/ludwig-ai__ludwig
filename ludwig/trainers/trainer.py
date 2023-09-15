@@ -843,6 +843,8 @@ class Trainer(BaseTrainer):
 
                     self.callback(lambda c: c.on_epoch_start(self, progress_tracker, save_path))
 
+                    print("Called train_loop.")
+
                     # Trains over a full epoch of data.
                     should_break = self._train_loop(
                         batcher,
@@ -995,6 +997,8 @@ class Trainer(BaseTrainer):
             # Update LR schduler here instead of train loop to avoid updating during batch size tuning, etc.
             self.scheduler.step()
 
+            print("Called scheduler.step()")
+
             if self.is_coordinator() and not self.skip_save_log:
                 self.write_step_summary(
                     train_summary_writer=train_summary_writer,
@@ -1003,6 +1007,8 @@ class Trainer(BaseTrainer):
                     step=progress_tracker.steps,
                     learning_rate=progress_tracker.learning_rate,
                 )
+
+            print("Increasing progress tracker steps...")
 
             progress_tracker.steps += 1
             progress_bar.set_postfix({"loss": float(loss)})
