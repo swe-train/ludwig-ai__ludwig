@@ -844,6 +844,7 @@ class Trainer(BaseTrainer):
                     self.callback(lambda c: c.on_epoch_start(self, progress_tracker, save_path))
 
                     print("Called train_loop.")
+                    logger.info("Called train_loop.")
 
                     # Trains over a full epoch of data.
                     should_break = self._train_loop(
