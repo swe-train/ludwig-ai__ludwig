@@ -367,6 +367,9 @@ class Trainer(BaseTrainer):
         # combined loss
         train_summary_writer.add_scalar("combined/step_training_loss", combined_loss, global_step=step)
 
+        train_summary_writer.add_scalar("gpu/global_free_memory", torch.cuda.mem_get_info()[0], global_step=step)
+        train_summary_writer.add_scalar("gpu/total_memory_occupied", torch.cuda.mem_get_info()[1], global_step=step)
+
         # all other losses
         for feature_name, loss in all_losses.items():
             loss_tag = f"{feature_name}/step_training_loss"
