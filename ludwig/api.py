@@ -1858,7 +1858,7 @@ class LudwigModel:
         )
 
     def _check_initialization(self):
-        if self.model is None or self._user_config is None or self.training_set_metadata is None:
+        if self.model is None or self._user_config is None:
             raise ValueError("Model has not been trained or loaded")
 
     def free_gpu_memory(self):
