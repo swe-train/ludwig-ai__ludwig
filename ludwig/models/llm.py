@@ -453,10 +453,6 @@ class LLM(BaseModel):
                         return_dict_in_generate=True,
                         output_scores=True,
                     )
-                    logger.info(
-                        "Decoded generated output for the first example in batch: "
-                        f"{self.tokenizer.batch_decode(model_outputs.sequences, skip_special_tokens=True)[0]}"
-                    )
 
                 sequences_list.append(model_outputs.sequences[0])
 

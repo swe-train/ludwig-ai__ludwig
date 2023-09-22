@@ -346,27 +346,27 @@ class LudwigModel:
             )
         # Check that there's no trainer?
 
-        if model_name is None:
-            model_name = self.config_obj.base_model
-        if self.backend.is_coordinator():
-            output_directory = get_output_directory(output_directory, experiment_name, model_name)
-        else:
-            output_directory = None
+        # if model_name is None:
+        #     model_name = self.config_obj.base_model
+        # if self.backend.is_coordinator():
+        #     output_directory = get_output_directory(output_directory, experiment_name, model_name)
+        # else:
+        #     output_directory = None
 
-        with upload_output_directory(output_directory) as (output_directory, upload_fn):
-            if self.backend.is_coordinator():
-                makedirs(output_directory, exist_ok=True)
+        # with upload_output_directory(output_directory) as (output_directory, upload_fn):
+        # if self.backend.is_coordinator():
+        # makedirs(output_directory, exist_ok=True)
 
-                # Print base model.
-                experiment_description = [
-                    ["LLM base model", self.config_obj.base_model],
-                    ["Output directory", output_directory],
-                ]
+        # Print base model.
+        # experiment_description = [
+        #     ["LLM base model", self.config_obj.base_model],
+        #     ["Output directory", output_directory],
+        # ]
 
-                print_boxed("MODEL INFORMATION")
-                logger.info(tabulate(experiment_description, tablefmt="fancy_grid"))
+        # print_boxed("MODEL INFORMATION")
+        # logger.info(tabulate(experiment_description, tablefmt="fancy_grid"))
 
-            self.model = LudwigModel.create_model(self.config_obj, random_seed=random_seed)
+        self.model = LudwigModel.create_model(self.config_obj, random_seed=random_seed)
 
     def train(
         self,
