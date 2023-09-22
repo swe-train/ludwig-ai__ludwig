@@ -972,6 +972,7 @@ class LudwigModel:
             backend=self.backend,
             callbacks=self.callbacks + (callbacks or []),
         )
+        print(f"metadata: {metadata}")
 
         # Set the generation config if it exists.
         # model.reset_generation_config() is called after batch prediction.
@@ -996,6 +997,7 @@ class LudwigModel:
                     makedirs(output_directory, exist_ok=True)
 
             logger.debug("Postprocessing")
+            print(f"metadata: {metadata}")
             postproc_predictions = postprocess(
                 predictions,
                 self.model.output_features,
