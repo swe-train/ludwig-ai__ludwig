@@ -427,10 +427,10 @@ class LLM(BaseModel):
             sequences_list = []
             for input_ids_sample in input_ids:
                 input_ids_sample_no_padding = remove_left_padding(input_ids_sample, self.tokenizer)
-                logger.info(
-                    "Decoded text inputs for the first example in batch: "
-                    f"{self.tokenizer.decode(input_ids_sample_no_padding[0], skip_special_tokens=True)}"
-                )
+                # logger.info(
+                #     "Decoded text inputs for the first example in batch: "
+                #     f"{self.tokenizer.decode(input_ids_sample_no_padding[0], skip_special_tokens=True)}"
+                # )
 
                 if input_ids_sample_no_padding.shape[1] > self.max_input_length:
                     logger.warning(

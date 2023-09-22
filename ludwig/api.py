@@ -962,7 +962,7 @@ class LudwigModel:
 
         # preprocessing
         logger.debug("Preprocessing")
-        dataset, _ = preprocess_for_prediction(  # TODO (Connor): Refactor to use self.config_obj
+        dataset, metadata = preprocess_for_prediction(  # TODO (Connor): Refactor to use self.config_obj
             self.config_obj.to_dict(),
             dataset=dataset,
             training_set_metadata=self.training_set_metadata,
@@ -999,7 +999,8 @@ class LudwigModel:
             postproc_predictions = postprocess(
                 predictions,
                 self.model.output_features,
-                self.training_set_metadata,
+                # self.training_set_metadata,
+                metadata,
                 output_directory=output_directory,
                 backend=self.backend,
                 skip_save_unprocessed_output=skip_save_unprocessed_output or not self.backend.is_coordinator(),
