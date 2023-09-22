@@ -1505,7 +1505,7 @@ def is_input_feature(feature_config: FeatureConfigDict) -> bool:
 
 
 def build_metadata(
-    metadata: TrainingSetMetadataDict,
+    metadata: Optional[TrainingSetMetadataDict],
     feature_name_to_preprocessing_parameters: Dict[str, PreprocessingConfigDict],
     dataset_cols: Dict[str, Series],
     feature_configs: List[FeatureConfigDict],
@@ -1513,7 +1513,8 @@ def build_metadata(
 ) -> TrainingSetMetadataDict:
     for feature_config in feature_configs:
         feature_name = feature_config[NAME]
-        if feature_name in metadata:
+        if metadata and feature_name in metadata:
+            # The metadata may not exist if the model was LLM-initialized.
             continue
 
         preprocessing_parameters = feature_name_to_preprocessing_parameters[feature_name]
