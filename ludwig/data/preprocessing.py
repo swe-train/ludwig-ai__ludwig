@@ -1511,9 +1511,11 @@ def build_metadata(
     feature_configs: List[FeatureConfigDict],
     backend: Backend,
 ) -> TrainingSetMetadataDict:
+    if metadata is None:
+        metadata = {}
     for feature_config in feature_configs:
         feature_name = feature_config[NAME]
-        if metadata and feature_name in metadata:
+        if feature_name in metadata:
             # The metadata may not exist if the model was LLM-initialized.
             continue
 
