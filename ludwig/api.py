@@ -927,6 +927,26 @@ class LudwigModel:
         trainer.eval_batch_size = self.config_obj.trainer.eval_batch_size
         trainer.gradient_accumulation_steps = self.config_obj.trainer.gradient_accumulation_steps
 
+    def generate(
+        self,
+        input_strings: Union[str, List[str]],
+        generation_config: Optional[dict] = None,
+    ) -> Union[str, List[str]]:
+        """A simple generate() method that directly uses the underlying transformers library to generate text."""
+        from transformers import AutoTokenizer
+
+        if self.config_obj.model_type != MODEL_LLM:
+            raise ValueError(
+                f"Model type {self.config_obj.model_type} is not supported by this method. Only `llm` model type is "
+                "supported."
+            )
+        tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-hf")
+        inputs = tokenizer(input_strings)
+
+        with self.model.use_generation_config(generation_config):
+            generation_config = self.model.model.generation_config
+            return self.model.model.generate(**inputs, generation_config=generation_config)
+
     def predict(
         self,
         dataset: Optional[Union[str, dict, pd.DataFrame]] = None,
