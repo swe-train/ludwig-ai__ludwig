@@ -940,8 +940,8 @@ class LudwigModel:
                 f"Model type {self.config_obj.model_type} is not supported by this method. Only `llm` model type is "
                 "supported."
             )
-        tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-hf")
-        inputs = tokenizer(input_strings)
+        tokenizer = AutoTokenizer.from_pretrained(self.config_obj.base_model)
+        inputs = tokenizer(input_strings, return_tensors="pt")
 
         with self.model.use_generation_config(generation_config):
             generation_config = self.model.model.generation_config
