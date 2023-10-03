@@ -332,40 +332,13 @@ class LudwigModel:
         # online training state
         self._online_trainer = None
 
-    def initialize_llm(
-        self,
-        random_seed: int = default_random_seed,
-        experiment_name: str = "llm",
-        output_directory: str = "artifacts",
-        model_name: Optional[str] = None,
-    ):
+    def initialize_llm(self, random_seed: int = default_random_seed):
+        """Initialize the LLM model."""
         if self.config_obj.model_type != MODEL_LLM:
             raise ValueError(
                 f"Model type {self.config_obj.model_type} is not supported by this method. Only `llm` model type is "
                 "supported."
             )
-        # Check that there's no trainer?
-
-        # if model_name is None:
-        #     model_name = self.config_obj.base_model
-        # if self.backend.is_coordinator():
-        #     output_directory = get_output_directory(output_directory, experiment_name, model_name)
-        # else:
-        #     output_directory = None
-
-        # with upload_output_directory(output_directory) as (output_directory, upload_fn):
-        # if self.backend.is_coordinator():
-        # makedirs(output_directory, exist_ok=True)
-
-        # Print base model.
-        # experiment_description = [
-        #     ["LLM base model", self.config_obj.base_model],
-        #     ["Output directory", output_directory],
-        # ]
-
-        # print_boxed("MODEL INFORMATION")
-        # logger.info(tabulate(experiment_description, tablefmt="fancy_grid"))
-
         self.model = LudwigModel.create_model(self.config_obj, random_seed=random_seed)
 
     def train(
@@ -945,7 +918,9 @@ class LudwigModel:
 
         with self.model.use_generation_config(generation_config):
             generation_config = self.model.model.generation_config
-            return self.model.model.generate(**inputs, generation_config=generation_config)
+            return tokenizer.batch_decode(
+                self.model.model.generate(**inputs, generation_config=generation_config), skip_special_tokens=True
+            )
 
     def predict(
         self,
