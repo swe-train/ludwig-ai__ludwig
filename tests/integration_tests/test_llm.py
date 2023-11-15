@@ -1065,3 +1065,27 @@ def test_local_path_loading(tmpdir):
 
     # Check that the models are the same
     assert _compare_models(model1.model, model2.model)
+
+
+def test_llm_pretraining(csv_filename, tmpdir):
+    input_features = [text_feature(name="input", encoder={"type": "passthrough"})]
+    output_features = [text_feature(name="output")]
+
+    df = generate_data(input_features, output_features, filename=csv_filename, num_examples=25)
+
+    config = {
+        MODEL_TYPE: MODEL_LLM,
+        BASE_MODEL: "facebook/opt-125m",
+        INPUT_FEATURES: input_features,
+        OUTPUT_FEATURES: output_features,
+        # TODO: Add model_config to base config
+        TRAINER: {
+            TYPE: "pretrain",
+            BATCH_SIZE: 8,
+            EPOCHS: 1,
+            "enable_gradient_checkpointing": True,
+        },
+    }
+
+    model = LudwigModel(config)
+    model.train(dataset=df, output_directory=str(tmpdir), skip_save_processed_input=False)
