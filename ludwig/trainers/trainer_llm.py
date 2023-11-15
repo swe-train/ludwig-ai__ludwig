@@ -12,7 +12,7 @@ from ludwig.features.feature_utils import LudwigFeatureDict
 from ludwig.models.llm import LLM
 from ludwig.models.predictor import LlmFineTunePredictor, LlmPredictor
 from ludwig.modules.metric_modules import get_initial_validation_value
-from ludwig.schema.trainer import BaseTrainerConfig, FineTuneTrainerConfig, NoneTrainerConfig
+from ludwig.schema.trainer import BaseTrainerConfig, FineTuneTrainerConfig, NoneTrainerConfig, PretrainTrainerConfig
 from ludwig.trainers.base import BaseTrainer
 from ludwig.trainers.registry import register_llm_ray_trainer, register_llm_trainer
 from ludwig.trainers.trainer import Trainer
@@ -437,6 +437,13 @@ class FineTuneTrainer(Trainer):
         metrics, _ = predictor.batch_evaluation(dataset, collect_predictions=False, dataset_name=dataset_name)
 
         return append_metrics(self.model, dataset_name, metrics, metrics_log, progress_tracker)
+
+
+@register_llm_trainer("pretrain")
+class PretrainTrainer(Trainer):
+    @staticmethod
+    def get_schema_cls():
+        return PretrainTrainerConfig
 
 
 class RemoteLLMTrainer(NoneTrainer):

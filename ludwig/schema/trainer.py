@@ -916,6 +916,24 @@ class FineTuneTrainerConfig(ECDTrainerConfig):
 
 
 @DeveloperAPI
+@register_llm_trainer_schema("pretrain")
+@ludwig_dataclass
+class PretrainTrainerConfig(ECDTrainerConfig):
+    # Required for lookup during trainer initialization
+    type: str = schema_utils.ProtectedString("pretrain")
+
+    base_learning_rate: float = schema_utils.NonNegativeFloat(
+        default=0.0,
+        description="Base learning rate used for training in the LLM trainer.",
+    )
+
+    eval_batch_size: int = schema_utils.PositiveInteger(
+        default=2,
+        description="Batch size used for evaluation in the LLM trainer.",
+    )
+
+
+@DeveloperAPI
 def get_model_type_jsonschema(model_type: str = MODEL_ECD):
     enum = [MODEL_ECD]
     if model_type == MODEL_GBM:

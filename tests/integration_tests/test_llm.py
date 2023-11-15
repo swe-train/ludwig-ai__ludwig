@@ -1069,21 +1069,19 @@ def test_local_path_loading(tmpdir):
 
 def test_llm_pretraining(csv_filename, tmpdir):
     input_features = [text_feature(name="input", encoder={"type": "passthrough"})]
-    output_features = [text_feature(name="output")]
 
-    df = generate_data(input_features, output_features, filename=csv_filename, num_examples=25)
+    df = generate_data(input_features, [], filename=csv_filename, num_examples=25)
 
     config = {
         MODEL_TYPE: MODEL_LLM,
         BASE_MODEL: "facebook/opt-125m",
         INPUT_FEATURES: input_features,
-        OUTPUT_FEATURES: output_features,
+        # OUTPUT_FEATURES: output_features,
         # TODO: Add model_config to base config
         TRAINER: {
             TYPE: "pretrain",
-            BATCH_SIZE: 8,
-            EPOCHS: 1,
-            "enable_gradient_checkpointing": True,
+            BATCH_SIZE: 1,
+            "train_steps": 5,
         },
     }
 

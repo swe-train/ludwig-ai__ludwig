@@ -317,7 +317,9 @@ class GBMOutputFeatureSelection(FeaturesTypeSelection):
 class LLMOutputFeatureSelection(FeaturesTypeSelection):
     def __init__(self):
         # TODO(Arnav): Remove the hard check on max_length once we support multiple output features.
-        super().__init__(max_length=1, registry=llm_output_config_registry, description="Type of the output feature")
+        super().__init__(
+            min_length=0, max_length=1, registry=llm_output_config_registry, description="Type of the output feature"
+        )
 
     def _jsonschema_type_mapping(self):
         return get_output_feature_jsonschema(MODEL_LLM)
