@@ -1067,7 +1067,7 @@ def test_local_path_loading(tmpdir):
     assert _compare_models(model1.model, model2.model)
 
 
-def test_llm_pretraining(csv_filename, tmpdir):
+def test_llm_continued_pretraining(csv_filename, tmpdir):
     input_features = [text_feature(name="input", encoder={"type": "passthrough"})]
 
     df = generate_data(input_features, [], filename=csv_filename, num_examples=25)
@@ -1076,7 +1076,27 @@ def test_llm_pretraining(csv_filename, tmpdir):
         MODEL_TYPE: MODEL_LLM,
         BASE_MODEL: "facebook/opt-125m",
         INPUT_FEATURES: input_features,
-        # OUTPUT_FEATURES: output_features,
+        OUTPUT_FEATURES: [],
+        TRAINER: {
+            TYPE: "pretrain",
+            BATCH_SIZE: 1,
+            "train_steps": 5,
+        },
+    }
+
+    model = LudwigModel(config)
+    model.train(dataset=df, output_directory=str(tmpdir), skip_save_processed_input=False)
+
+
+def test_llm_pretraining_from_scratch(csv_filename, tmpdir):
+    input_features = [text_feature(name="input", encoder={"type": "passthrough"})]
+
+    df = generate_data(input_features, [], filename=csv_filename, num_examples=25)
+
+    config = {
+        MODEL_TYPE: MODEL_LLM,
+        BASE_MODEL: "facebook/opt-125m",
+        INPUT_FEATURES: input_features,
         # TODO: Add model_config to base config
         TRAINER: {
             TYPE: "pretrain",

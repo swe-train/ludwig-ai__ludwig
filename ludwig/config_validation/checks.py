@@ -223,6 +223,9 @@ def check_sampling_exclusivity(config: "ModelConfig") -> None:  # noqa: F821
 @register_config_check
 def check_validation_metric_exists(config: "ModelConfig") -> None:  # noqa: F821
     """Checks that the specified validation metric exists."""
+    if config.model_type == MODEL_LLM and config.trainer.type == "pretrain":
+        return
+
     validation_metric_name = config.trainer.validation_metric
 
     # Get all valid metrics.

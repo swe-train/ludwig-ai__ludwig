@@ -352,7 +352,7 @@ def _set_llm_tokenizers(config: "ModelConfig") -> None:
 def _get_maximum_possible_sequence_length(config: "ModelConfig", default_max_sequence_length: int) -> int:
     """Returns the maximum possible sequence length for the LLM model based on the model config."""
     max_possible_sequence_length = default_max_sequence_length
-    if config.output_features[0].preprocessing.max_sequence_length is not None:
+    if config.output_features and config.output_features[0].preprocessing.max_sequence_length is not None:
         # Note: We don't need to check for max between feature.preprocessing.max_sequence_length and
         # defaults.text.preprocessing.max_sequence_length because the latter is only applied to input features.
         max_possible_sequence_length = max(
@@ -389,7 +389,7 @@ def _set_generation_max_new_tokens(config: "ModelConfig") -> None:
         # Max new tokens is explicitly set by user, so don't override
         return
 
-    if config.output_features[0].type != TEXT:
+    if config.output_features and config.output_features[0].type != TEXT:
         # This is trickier to set for other output features, so don't override for now.
         # TODO: Add better support for category output features
         return
