@@ -25,6 +25,7 @@ from ludwig.utils.print_utils import repr_ordered_dict
 from ludwig.utils.registry import Registry
 from ludwig.utils.strings_utils import make_safe_filename
 from ludwig.utils.torch_utils import get_torch_device
+from ludwig.utils.trainer_utils import prepare_batch_dict
 
 EXCLUDE_PRED_SET = {LOGITS, LAST_HIDDEN}
 SKIP_EVAL_METRICS = {"confusion_matrix", "roc_curve"}
@@ -336,6 +337,11 @@ class LlmPredictor(Predictor):
 
 
 class LlmFineTunePredictor(Predictor):
+    def prepare_batch_inputs_targets(self, batch):
+        inputs = prepare_batch_dict(self.model.input_features, batch, self.device)
+        targets = prepare_batch_dict(self.model.output_features, batch, self.device)
+        return (inputs, targets)
+
     def batch_evaluation(self, dataset, collect_predictions=False, collect_logits=False, dataset_name=None):
         """Batch evaluate model on dataset.
 
@@ -372,18 +378,20 @@ class LlmFineTunePredictor(Predictor):
                         f"evaluation for {dataset_name}: obtained next batch "
                         f"memory used: {psutil.Process(os.getpid()).memory_info()[0] / 1e6:0.2f}MB"
                     )
-                    inputs = {
-                        i_feat.feature_name: torch.from_numpy(np.array(batch[i_feat.proc_column], copy=True)).to(
-                            self.device
-                        )
-                        for i_feat in self.model.input_features.values()
-                    }
-                    targets = {
-                        o_feat.feature_name: torch.from_numpy(np.array(batch[o_feat.proc_column], copy=True)).to(
-                            self.device
-                        )
-                        for o_feat in self.model.output_features.values()
-                    }
+                    # inputs = {
+                    #     i_feat.feature_name: torch.from_numpy(np.array(batch[i_feat.proc_column], copy=True)).to(
+                    #         self.device
+                    #     )
+                    #     for i_feat in self.model.input_features.values()
+                    # }
+                    # targets = {
+                    #     o_feat.feature_name: torch.from_numpy(np.array(batch[o_feat.proc_column], copy=True)).to(
+                    #         self.device
+                    #     )
+                    #     for o_feat in self.model.output_features.values()
+                    # }
+
+                    inputs, targets = self.prepare_batch_inputs_targets(batch)
 
                     outputs = self._predict_on_inputs((inputs, targets))
                     preds = self.model.outputs_to_predictions(outputs)
@@ -419,6 +427,13 @@ class LlmFineTunePredictor(Predictor):
             self.dist_model.train(prev_model_training_mode)  # Restores previous model training mode.
 
             return metrics, from_numpy_dataset(predictions)
+
+
+class LlmPretrainPredictor(LlmFineTunePredictor):
+    def prepare_batch_inputs_targets(self, batch):
+        inputs = prepare_batch_dict(self.model.input_features, batch, self.device)
+        targets = prepare_batch_dict(self.model.input_features, batch, self.device)
+        return (inputs, targets)
 
 
 def calculate_overall_stats(output_features, predictions, dataset, training_set_metadata):

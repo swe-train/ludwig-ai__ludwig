@@ -23,7 +23,7 @@ from ludwig.utils.metric_utils import TrainerMetric
 from ludwig.utils.metrics_printed_table import print_metrics_table
 from ludwig.utils.misc_utils import set_random_seed
 from ludwig.utils.torch_utils import get_torch_device
-from ludwig.utils.trainer_utils import append_metrics, get_new_progress_tracker, ProgressTracker
+from ludwig.utils.trainer_utils import append_metrics, get_new_progress_tracker, prepare_batch_dict, ProgressTracker
 
 logger = logging.getLogger(__name__)
 
@@ -444,6 +444,11 @@ class PretrainTrainer(Trainer):
     @staticmethod
     def get_schema_cls():
         return PretrainTrainerConfig
+
+    def prepare_batch_inputs_targets(self, batch):
+        inputs = prepare_batch_dict(self.model.input_features, batch, self.device)
+        targets = prepare_batch_dict(self.model.input_features, batch, self.device)
+        return (inputs, targets)
 
 
 class RemoteLLMTrainer(NoneTrainer):
