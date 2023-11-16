@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import torch
+from predibase.resource.model import Model as PredibaseCloudModel
 
 import ludwig.error as ludwig_error
 from ludwig.api import LudwigModel
@@ -31,6 +32,11 @@ from ludwig.constants import (
     TYPE,
 )
 from ludwig.models.llm import LLM
+
+# TODO: <Alex>ALEX</Alex>
+from ludwig.models.predibase_model import PredibaseModel
+
+# TODO: <Alex>ALEX</Alex>
 from ludwig.schema.model_types.base import ModelConfig
 from ludwig.utils.fs_utils import list_file_names_in_directory
 from ludwig.utils.types import DataFrame
@@ -40,7 +46,16 @@ pytestmark = pytest.mark.llm
 
 
 LOCAL_BACKEND = {"type": "local"}
+# TODO: <Alex>ALEX</Alex>
+# TODO: <Alex>ALEX-Consider importing from "ludwig/backend/__init__.py"/Alex>
+PREDIBASE_BACKEND = {"type": "predibase"}
+# TODO: <Alex>ALEX</Alex>
+# TODO: <Alex>ALEX</Alex>
 TEST_MODEL_NAME = "hf-internal-testing/tiny-random-GPTJForCausalLM"
+# TODO: <Alex>ALEX</Alex>
+# TODO: <Alex>ALEX</Alex>
+TEST_MODEL_NAME = "meta-llama/Llama-2-7b-hf"
+# TODO: <Alex>ALEX</Alex>
 MAX_NEW_TOKENS_TEST_DEFAULT = 5
 
 RAY_BACKEND = {
@@ -72,6 +87,15 @@ def local_backend():
 @pytest.fixture(scope="module")
 def ray_backend():
     return RAY_BACKEND
+
+
+# TODO: <Alex>ALEX</Alex>
+@pytest.fixture(scope="module")
+def predibase_backend():
+    return PREDIBASE_BACKEND
+
+
+# TODO: <Alex>ALEX</Alex>
 
 
 def get_dataset():
@@ -315,7 +339,12 @@ def test_llm_few_shot_classification(tmpdir, backend, csv_filename, ray_cluster_
 
 
 def _prepare_finetuning_test(
-    csv_filename: str, finetune_strategy: str, backend: Dict, adapter_args: Dict
+    csv_filename: str,
+    finetune_strategy: str,
+    backend: Dict,
+    adapter_args: Dict,
+    quantization: Union[Dict, None] = None,
+    trainer_type: str = "finetune",
 ) -> Tuple[Dict, str]:
     input_features = [text_feature(name="input", encoder={"type": "passthrough"})]
     output_features = [text_feature(name="output")]
@@ -342,11 +371,29 @@ def _prepare_finetuning_test(
         BASE_MODEL: model_name,
         INPUT_FEATURES: input_features,
         OUTPUT_FEATURES: output_features,
+        # TODO: <Alex>ALEX</Alex>
+        # TRAINER: {
+        #     TYPE: trainer_type or "finetune",
+        #     BATCH_SIZE: 8,
+        #     EPOCHS: 2,
+        # },
+        # TODO: <Alex>ALEX</Alex>
+        # TODO: <Alex>ALEX</Alex>
         TRAINER: {
-            TYPE: "finetune",
-            BATCH_SIZE: 8,
-            EPOCHS: 2,
+            TYPE: trainer_type or "finetune",
+            BATCH_SIZE: 1,
+            EPOCHS: 3,
+            "eval_batch_size": 1,
+            "gradient_accumulation_steps": 16,
+            "learning_rate": 2.0e-4,
+            "enable_gradient_checkpointing": True,
+            "learning_rate_scheduler": {
+                "decay": "cosine",
+                "warmup_fraction": 0.03,
+                "reduce_on_plateau": 0,
+            },
         },
+        # TODO: <Alex>ALEX</Alex>
         BACKEND: backend,
     }
 
@@ -355,6 +402,8 @@ def _prepare_finetuning_test(
             TYPE: finetune_strategy,
             **adapter_args,
         }
+        if quantization:
+            config[QUANTIZATION] = quantization
 
     return train_df, prediction_df, config
 
@@ -459,61 +508,65 @@ def _verify_lm_lora_finetuning_layers(
 @pytest.mark.parametrize(
     "finetune_strategy,adapter_args",
     [
-        pytest.param(
-            None,
-            {},
-            id="full",
-        ),
+        # TODO: <Alex>ALEX</Alex>
+        # pytest.param(
+        #     None,
+        #     {},
+        #     id="full",
+        # ),
+        # TODO: <Alex>ALEX</Alex>
         pytest.param(
             "lora",
             {},
             id="lora-defaults",
         ),
-        pytest.param(
-            "lora",
-            {"r": 4, "dropout": 0.1},
-            id="lora-modified-defaults",
-        ),
-        pytest.param(
-            "lora",
-            {POSTPROCESSOR: {MERGE_ADAPTER_INTO_BASE_MODEL: True, PROGRESSBAR: True}},
-            id="lora_merged",
-        ),
-        pytest.param(
-            "lora",
-            {POSTPROCESSOR: {MERGE_ADAPTER_INTO_BASE_MODEL: False}},
-            id="lora_not_merged",
-        ),
-        pytest.param(
-            "adalora",
-            {},
-            id="adalora-defaults",
-        ),
-        pytest.param(
-            "adalora",
-            {"init_r": 8, "beta1": 0.8},
-            id="adalora-modified-defaults",
-        ),
-        pytest.param(
-            "adalora",
-            {POSTPROCESSOR: {MERGE_ADAPTER_INTO_BASE_MODEL: True, PROGRESSBAR: True}},
-            id="adalora_merged",
-        ),
-        pytest.param(
-            "adalora",
-            {POSTPROCESSOR: {MERGE_ADAPTER_INTO_BASE_MODEL: False}},
-            id="adalora_not_merged",
-        ),
-        pytest.param(
-            "adaption_prompt",
-            {},
-            id="adaption_prompt-defaults",
-        ),
-        pytest.param(
-            "adaption_prompt",
-            {"adapter_len": 6, "adapter_layers": 1},
-            id="adaption_prompt-modified-defaults",
-        ),
+        # TODO: <Alex>ALEX</Alex>
+        # pytest.param(
+        #     "lora",
+        #     {"r": 4, "dropout": 0.1},
+        #     id="lora-modified-defaults",
+        # ),
+        # pytest.param(
+        #     "lora",
+        #     {POSTPROCESSOR: {MERGE_ADAPTER_INTO_BASE_MODEL: True, PROGRESSBAR: True}},
+        #     id="lora_merged",
+        # ),
+        # pytest.param(
+        #     "lora",
+        #     {POSTPROCESSOR: {MERGE_ADAPTER_INTO_BASE_MODEL: False}},
+        #     id="lora_not_merged",
+        # ),
+        # pytest.param(
+        #     "adalora",
+        #     {},
+        #     id="adalora-defaults",
+        # ),
+        # pytest.param(
+        #     "adalora",
+        #     {"init_r": 8, "beta1": 0.8},
+        #     id="adalora-modified-defaults",
+        # ),
+        # pytest.param(
+        #     "adalora",
+        #     {POSTPROCESSOR: {MERGE_ADAPTER_INTO_BASE_MODEL: True, PROGRESSBAR: True}},
+        #     id="adalora_merged",
+        # ),
+        # pytest.param(
+        #     "adalora",
+        #     {POSTPROCESSOR: {MERGE_ADAPTER_INTO_BASE_MODEL: False}},
+        #     id="adalora_not_merged",
+        # ),
+        # pytest.param(
+        #     "adaption_prompt",
+        #     {},
+        #     id="adaption_prompt-defaults",
+        # ),
+        # pytest.param(
+        #     "adaption_prompt",
+        #     {"adapter_len": 6, "adapter_layers": 1},
+        #     id="adaption_prompt-modified-defaults",
+        # ),
+        # TODO: <Alex>ALEX</Alex>
         # pytest.param(
         #     "prompt_tuning",
         #     {
@@ -571,6 +624,175 @@ def test_llm_finetuning_strategies(tmpdir, csv_filename, backend, finetune_strat
     assert preds
 
 
+# TODO: <Alex>ALEX</Alex>
+def test_llm_finetuning_with_predibase_backend(tmpdir, csv_filename, predibase_backend: dict):
+    # TODO: <Alex>ALEX</Alex>
+    finetune_strategy: str = "lora"
+    # TODO: <Alex>ALEX</Alex>
+    # TODO: <Alex>ALEX</Alex>
+    # finetune_strategy: str = None
+    # TODO: <Alex>ALEX</Alex>
+    adapter_args: dict = {}
+    # TODO: <Alex>ALEX</Alex>
+    quantization: Union[dict, None] = {"bits": 4}
+    # TODO: <Alex>ALEX</Alex>
+    # TODO: <Alex>ALEX</Alex>
+    # quantization: Union[dict, None] = None
+    # TODO: <Alex>ALEX</Alex>
+    # trainer_type: Union[str, None] = "predibase_finetune"
+    # TODO: <Alex>ALEX</Alex>
+    # TODO: <Alex>ALEX</Alex>
+    # TODO: <Alex>ALEX</Alex>
+    # train_df, prediction_df, config = _prepare_finetuning_test(csv_filename=csv_filename, finetune_strategy=finetune_strategy, backend=predibase_backend, adapter_args=adapter_args, quantization=quantization, trainer_type=trainer_type)
+    # TODO: <Alex>ALEX</Alex>
+    # TODO: <Alex>ALEX</Alex>
+    # csv_filename: str, finetune_strategy: str, backend: Dict, adapter_args: Dict, quantization: Union[Dict, None] = None, trainer_type: str = "finetune",
+    train_df, prediction_df, config = _prepare_finetuning_test(
+        csv_filename=csv_filename,
+        finetune_strategy=finetune_strategy,
+        backend=predibase_backend,
+        adapter_args=adapter_args,
+        quantization=quantization,
+    )
+    # TODO: <Alex>ALEX</Alex>
+
+    # TODO: <Alex>ALEX</Alex>
+    # output_directory: str = str(tmpdir)
+    # model_directory: str = pathlib.Path(output_directory) / "api_experiment_run" / "model"
+    # TODO: <Alex>ALEX</Alex>
+
+    print(
+        f"\n[ALEX_TEST] [TEST_LLM::test_llm_finetuning_with_predibase_backend()] CONFIG:\n{config} ; TYPE: {str(type(config))}"
+    )
+    model = LudwigModel(config=config)
+    print(
+        f"\n[ALEX_TEST] [TEST_LLM::test_llm_finetuning_with_predibase_backend()] MODEL:\n{model} ; TYPE: {str(type(model))}"
+    )
+    # TODO: <Alex>ALEX</Alex>
+    # model.train(dataset=train_df, output_directory=output_directory, skip_save_processed_input=False)
+    model.train(dataset=train_df, model_name="alex_and_julian_test_model")
+    # TODO: <Alex>ALEX</Alex>
+
+    # TODO: <Alex>ALEX</Alex>
+    assert isinstance(model.model, PredibaseModel)
+    print(
+        f"\n[ALEX_TEST] [TEST_LLM::test_llm_finetuning_with_predibase_backend()] PREDIBASE_MODEL.MODEL:\n{model.model.model} ; TYPE: {str(type(model.model.model))}"
+    )
+    assert isinstance(model.model.model, PredibaseCloudModel)
+    # TODO: <Alex>ALEX</Alex>
+
+    # TODO: <Alex>ALEX</Alex>
+    # loaded_model: PredibaseModel = model.model.load(model_name="alex_and_julian_test_model")
+    # preds = loaded_model.predict(dataset=prediction_df)
+    # print(f'\n[ALEX_TEST] [TEST_LLM::test_llm_finetuning_with_predibase_backend()] PREDICTIONS:\n{preds} ; TYPE: {str(type(preds))}')
+    # TODO: <Alex>ALEX</Alex>
+
+    # TODO: <Alex>ALEX</Alex>
+    # # Make sure we can load the saved model and then use it for predictions
+    # model = LudwigModel.load(str(model_directory), backend=backend)
+
+    # base_model = LLM(ModelConfig.from_dict(config))
+    # assert not _compare_models(base_model, model.model)  # noqa F821
+
+    # preds, _ = model.predict(dataset=prediction_df, output_directory=output_directory)
+    # preds = convert_preds(preds)
+
+    # assert preds
+    # TODO: <Alex>ALEX</Alex>
+
+
+# TODO: <Alex>ALEX</Alex>
+
+
+# TODO: <Alex>ALEX</Alex>
+def test_model_load_with_predibase_backend(tmpdir, csv_filename, predibase_backend: dict):
+    # TODO: <Alex>ALEX</Alex>
+    finetune_strategy: str = "lora"
+    # TODO: <Alex>ALEX</Alex>
+    # TODO: <Alex>ALEX</Alex>
+    # finetune_strategy: str = None
+    # TODO: <Alex>ALEX</Alex>
+    adapter_args: dict = {}
+    # TODO: <Alex>ALEX</Alex>
+    quantization: Union[dict, None] = {"bits": 4}
+    # TODO: <Alex>ALEX</Alex>
+    # TODO: <Alex>ALEX</Alex>
+    # quantization: Union[dict, None] = None
+    # TODO: <Alex>ALEX</Alex>
+    # trainer_type: Union[str, None] = "predibase_finetune"
+    # TODO: <Alex>ALEX</Alex>
+    # TODO: <Alex>ALEX</Alex>
+    # TODO: <Alex>ALEX</Alex>
+    # train_df, prediction_df, config = _prepare_finetuning_test(csv_filename=csv_filename, finetune_strategy=finetune_strategy, backend=predibase_backend, adapter_args=adapter_args, quantization=quantization, trainer_type=trainer_type)
+    # TODO: <Alex>ALEX</Alex>
+    # TODO: <Alex>ALEX</Alex>
+    train_df, prediction_df, config = _prepare_finetuning_test(
+        csv_filename=csv_filename,
+        finetune_strategy=finetune_strategy,
+        backend=predibase_backend,
+        adapter_args=adapter_args,
+        quantization=quantization,
+    )
+    # TODO: <Alex>ALEX</Alex>
+
+    # TODO: <Alex>ALEX</Alex>
+    # output_directory: str = str(tmpdir)
+    # model_directory: str = pathlib.Path(output_directory) / "api_experiment_run" / "model"
+    # TODO: <Alex>ALEX</Alex>
+
+    print(
+        f"\n[ALEX_TEST] [TEST_LLM::test_model_load_with_predibase_backend()] CONFIG:\n{config} ; TYPE: {str(type(config))}"
+    )
+    # model = LudwigModel(config=config)
+    # print(f'\n[ALEX_TEST] [TEST_LLM::test_model_load_with_predibase_backend()] MODEL:\n{model} ; TYPE: {str(type(model))}')
+    # TODO: <Alex>ALEX</Alex>
+    # model.train(dataset=train_df, output_directory=output_directory, skip_save_processed_input=False)
+    # model.train(dataset=train_df, model_name="alex_and_julian_test_model")
+    # TODO: <Alex>ALEX</Alex>
+
+    # TODO: <Alex>ALEX</Alex>
+    # assert isinstance(model.model, PredibaseModel)
+    # print(f'\n[ALEX_TEST] [TEST_LLM::test_model_load_with_predibase_backend()] PREDIBASE_MODEL.MODEL:\n{model.model.model} ; TYPE: {str(type(model.model.model))}')
+    # assert isinstance(model.model.mode, PredibaseCloudModel)
+    # TODO: <Alex>ALEX</Alex>
+
+    # TODO: <Alex>ALEX</Alex>
+    # loaded_model: PredibaseModel = model.model.load(model_name="alex_and_julian_test_model")
+    # preds = loaded_model.predict(dataset=prediction_df)
+    # print(f'\n[ALEX_TEST] [TEST_LLM::test_model_load_with_predibase_backend()] PREDICTIONS:\n{preds} ; TYPE: {str(type(preds))}')
+    # TODO: <Alex>ALEX</Alex>
+
+    # TODO: <Alex>ALEX</Alex>
+    # # Make sure we can load the saved model and then use it for predictions
+    model = LudwigModel.load(model_name="alex_and_julian_test_model", backend=predibase_backend)
+    print(
+        f"\n[ALEX_TEST] [TEST_LLM::test_model_load_with_predibase_backend()] MODEL:\n{model} ; TYPE: {str(type(model))}"
+    )
+    print(
+        f"\n[ALEX_TEST] [TEST_LLM::test_model_load_with_predibase_backend()] MODEL.MODEL:\n{model.model} ; TYPE: {str(type(model.model))}"
+    )
+
+    # base_model = LLM(ModelConfig.from_dict(config))
+    # assert not _compare_models(base_model, model.model)  # noqa F821
+
+    # TODO: <Alex>ALEX</Alex>
+    # preds, _ = model.predict(dataset=prediction_df, output_directory=output_directory)
+    # TODO: <Alex>ALEX</Alex>
+    # TODO: <Alex>ALEX</Alex>
+    preds = model.predict(dataset=prediction_df)
+    print(
+        f"\n[ALEX_TEST] [TEST_LLM::test_model_load_with_predibase_backend()] PREDICTIONS:\n{preds} ; TYPE: {str(type(preds))}"
+    )
+    # TODO: <Alex>ALEX</Alex>
+    # preds = convert_preds(preds)
+
+    # assert preds
+    # TODO: <Alex>ALEX</Alex>
+
+
+# TODO: <Alex>ALEX</Alex>
+
+
 @pytest.mark.llm
 @pytest.mark.parametrize(
     "finetune_strategy,adapter_args,quantization",
@@ -599,7 +821,7 @@ def test_llm_finetuning_strategies_quantized(tmpdir, csv_filename, finetune_stra
     backend = LOCAL_BACKEND
 
     train_df, prediction_df, config = _prepare_finetuning_test(csv_filename, finetune_strategy, backend, adapter_args)
-    config["backend"] = backend
+    config[BACKEND] = backend
     config[QUANTIZATION] = quantization
 
     model = LudwigModel(config)

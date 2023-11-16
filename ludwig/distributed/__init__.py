@@ -1,6 +1,7 @@
 from typing import Any, Dict, Type, Union
 
 from ludwig.distributed.base import DistributedStrategy, LocalStrategy
+from ludwig.distributed.predibase import PredibaseStrategy
 
 
 def load_ddp():
@@ -31,12 +32,22 @@ def load_local():
     return LocalStrategy
 
 
+# TODO: <Alex>ALEX</Alex>
+def load_predibase():
+    return PredibaseStrategy
+
+
+# TODO: <Alex>ALEX</Alex>
+
 STRATEGIES = {
     "ddp": load_ddp,
     "fsdp": load_fsdp,
     "deepspeed": load_deepspeed,
     "horovod": load_horovod,
     "local": load_local,
+    # TODO: <Alex>ALEX</Alex>
+    "predibase": load_predibase,
+    # TODO: <Alex>ALEX</Alex>
 }
 
 

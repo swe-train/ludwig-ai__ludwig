@@ -71,6 +71,7 @@ from ludwig.globals import (
 from ludwig.models.base import BaseModel
 from ludwig.models.calibrator import Calibrator
 from ludwig.models.inference import InferenceModule, save_ludwig_model_for_inference
+from ludwig.models.predibase_model import PredibaseModel, PredibaseModelRepo
 from ludwig.models.predictor import (
     calculate_overall_stats,
     print_evaluation_stats,
@@ -320,6 +321,7 @@ class LudwigModel:
 
         # setup Backend
         self.backend = initialize_backend(backend or self._user_config.get("backend"))
+        print(f"\n[ALEX_TEST] [LudwigModel.__INIT__()] SELF.BACKEND:\n{self.backend} ; TYPE: {str(type(self.backend))}")
         self.callbacks = callbacks if callbacks is not None else []
 
         # setup PyTorch env (GPU allocation, etc.)
@@ -334,6 +336,12 @@ class LudwigModel:
         # online training state
         self._online_trainer = None
 
+        print(
+            f"\n[ALEX_TEST] [LudwigModel.__INIT__()] MODEL_TYPE:\n{self.config_obj.model_type } ; TYPE: {str(type(self.config_obj.model_type ))}"
+        )
+        print(
+            f"\n[ALEX_TEST] [LudwigModel.__INIT__()] TRAINER_TYPE:\n{self.config_obj.trainer.type } ; TYPE: {str(type(self.config_obj.trainer.type ))}"
+        )
         # Zero-shot LLM usage.
         if (
             self.config_obj.model_type == MODEL_LLM
@@ -342,7 +350,9 @@ class LudwigModel:
             # model.train(dataset).
             and self.config_obj.output_features[0].type == "text"
         ):
+            print(f"\n[ALEX_TEST] [LudwigModel.__INIT__()] CALLING_INITIALIZE_LLM")
             self._initialize_llm()
+        print(f"\n[ALEX_TEST] [LudwigModel.__INIT__()] CONSTRUCTOR_FINISHED")
 
     def _initialize_llm(self, random_seed: int = default_random_seed):
         """Initialize the LLM model.
@@ -467,6 +477,7 @@ class LudwigModel:
             `(training_set, validation_set, test_set)`.
             `output_directory` filepath to where training results are stored.
         """
+        print(f"\n[ALEX_TEST] [LudwigModel.train()] MODEL_NAME:\n{model_name} ; TYPE: {str(type(model_name))}")
         # Only reset the metadata if the model has not been trained before
         if self.training_set_metadata:
             logger.warning(
@@ -512,6 +523,7 @@ class LudwigModel:
         )
 
         output_url = output_directory
+        print(f"\n[ALEX_TEST] [LudwigModel.train()] OUTPUT_URL:\n{output_url} ; TYPE: {str(type(output_url))}")
         with upload_output_directory(output_directory) as (output_directory, upload_fn):
             train_callbacks = self.callbacks
             if upload_fn is not None:
@@ -526,6 +538,13 @@ class LudwigModel:
 
                 train_callbacks = train_callbacks + [UploadOnEpochEndCallback()]
 
+            print(
+                f"\n[ALEX_TEST] [LudwigModel.train()] OUTPUT_DIRECTORY:\n{output_directory} ; TYPE: {str(type(output_directory))}"
+            )
+            print(f"\n[ALEX_TEST] [LudwigModel.train()] UPLOAD_FN:\n{upload_fn} ; TYPE: {str(type(upload_fn))}")
+            print(
+                f"\n[ALEX_TEST] [LudwigModel.train()] SELF.BACKEND.IS_COORDINATOR()-0:\n{self.backend.is_coordinator()} ; TYPE: {str(type(self.backend.is_coordinator()))}"
+            )
             description_fn = training_stats_fn = model_dir = None
             if self.backend.is_coordinator():
                 if should_create_output_directory:
@@ -537,6 +556,9 @@ class LudwigModel:
             else:
                 # save description
                 if self.backend.is_coordinator():
+                    print(
+                        f"\n[ALEX_TEST] [LudwigModel.train()] SELF.BACKEND.IS_COORDINATOR()-1:\n{self.backend.is_coordinator()} ; TYPE: {str(type(self.backend.is_coordinator()))}"
+                    )
                     description = get_experiment_description(
                         self.config_obj.to_dict(),
                         dataset=dataset,
@@ -563,6 +585,9 @@ class LudwigModel:
                             experiment_description.append([key, pformat(value, indent=4)])
 
                     if self.backend.is_coordinator():
+                        print(
+                            f"\n[ALEX_TEST] [LudwigModel.train()] SELF.BACKEND.IS_COORDINATOR()-2:\n{self.backend.is_coordinator()} ; TYPE: {str(type(self.backend.is_coordinator()))}"
+                        )
                         print_boxed("EXPERIMENT DESCRIPTION")
                         logger.info(tabulate(experiment_description, tablefmt="fancy_grid"))
 
@@ -599,6 +624,9 @@ class LudwigModel:
             self.training_set_metadata = training_set_metadata
 
             if self.backend.is_coordinator():
+                print(
+                    f"\n[ALEX_TEST] [LudwigModel.train()] SELF.BACKEND.IS_COORDINATOR()-3:\n{self.backend.is_coordinator()} ; TYPE: {str(type(self.backend.is_coordinator()))}"
+                )
                 dataset_statistics = generate_dataset_statistics(training_set, validation_set, test_set)
 
                 if not skip_save_model:
@@ -623,22 +651,41 @@ class LudwigModel:
 
             # Build model if not provided
             # if it was provided it means it was already loaded
+            print(f"\n[ALEX_TEST] [LudwigModel.train()] SELF.MODEL-0:\n{self.model} ; TYPE: {str(type(self.model))}")
             if not self.model:
                 if self.backend.is_coordinator():
+                    print(
+                        f"\n[ALEX_TEST] [LudwigModel.train()] SELF.BACKEND.IS_COORDINATOR()-4:\n{self.backend.is_coordinator()} ; TYPE: {str(type(self.backend.is_coordinator()))}"
+                    )
                     print_boxed("MODEL")
                 # update model config with metadata properties derived from training set
                 update_config_with_metadata(self.config_obj, training_set_metadata)
                 logger.info("Warnings and other logs:")
-                self.model = LudwigModel.create_model(self.config_obj, random_seed=random_seed)
+                print(
+                    f"\n[ALEX_TEST] [LudwigModel.train()] CALLING_LUDWIG_MODEL.CREATE_MODEL_WITH_RANDOM_SEED:\n{random_seed} ; TYPE: {str(type(random_seed))}"
+                )
+                self.model = LudwigModel.create_model(
+                    self.config_obj, random_seed=random_seed, user_config=self._user_config
+                )
+                # TODO: <Alex>ALEX</Alex>
                 # update config with properties determined during model instantiation
-                update_config_with_model(self.config_obj, self.model)
+                # update_config_with_model(self.config_obj, self.model)
+                # TODO: <Alex>ALEX</Alex>
                 set_saved_weights_in_checkpoint_flag(self.config_obj)
+                print(
+                    f"\n[ALEX_TEST] [LudwigModel.train()] SELF.MODEL-1:\n{self.model} ; TYPE: {str(type(self.model))}"
+                )
 
             # auto tune learning rate
             if hasattr(self.config_obj.trainer, "learning_rate") and self.config_obj.trainer.learning_rate == AUTO:
                 detected_learning_rate = get_auto_learning_rate(self.config_obj)
                 self.config_obj.trainer.learning_rate = detected_learning_rate
 
+            print(f"\n[ALEX_TEST] [LudwigModel.train()] DATASET:\n{dataset} ; TYPE: {str(type(dataset))}")
+            if self.config_obj.backend["type"] == "predibase":
+                self.model.train(dataset=dataset, experiment_name=experiment_name, model_name=model_name)
+                return TrainingResults(train_stats=None, preprocessed_data=None, output_directory=None)
+            # TODO: <Alex>ALEX</Alex>
             with self.backend.create_trainer(
                 model=self.model,
                 config=self.config_obj.trainer,
@@ -649,6 +696,7 @@ class LudwigModel:
                 callbacks=train_callbacks,
                 random_seed=random_seed,
             ) as trainer:
+                print(f"\n[ALEX_TEST] [LudwigModel.train()] TRAINER:\n{trainer} ; TYPE: {str(type(trainer))}")
                 # auto tune batch size
                 self._tune_batch_size(trainer, training_set, random_seed=random_seed)
 
@@ -779,6 +827,7 @@ class LudwigModel:
 
                 print_boxed("FINISHED")
                 return TrainingResults(train_stats, preprocessed_data, output_url)
+            # TODO: <Alex>ALEX</Alex>
 
     def train_online(
         self,
@@ -1018,16 +1067,52 @@ class LudwigModel:
         # preprocessing
         start_time = time.time()
         logger.debug("Preprocessing")
-        dataset, _ = preprocess_for_prediction(  # TODO (Connor): Refactor to use self.config_obj
-            self.config_obj.to_dict(),
-            dataset=dataset,
-            training_set_metadata=self.training_set_metadata,
-            data_format=data_format,
-            split=split,
-            include_outputs=False,
-            backend=self.backend,
-            callbacks=self.callbacks + (callbacks or []),
-        )
+        # TODO: <Alex>ALEX</Alex>
+        # dataset, _ = preprocess_for_prediction(  # TODO (Connor): Refactor to use self.config_obj
+        #     self.config_obj.to_dict(),
+        #     dataset=dataset,
+        #     training_set_metadata=self.training_set_metadata,
+        #     data_format=data_format,
+        #     split=split,
+        #     include_outputs=False,
+        #     backend=self.backend,
+        #     callbacks=self.callbacks + (callbacks or []),
+        # )
+        # TODO: <Alex>ALEX</Alex>
+        # TODO: <Alex>ALEX</Alex>
+        print(f"\n[ALEX_TEST] [LudwigModel.predict()] DATASET-0:\n{dataset} ; TYPE: {str(type(dataset))}")
+        if isinstance(self.model, PredibaseModel):
+            print(f"\n[ALEX_TEST] [LudwigModel.predict()] SELF.MODEL:\n{self.model} ; TYPE: {str(type(self.model))}")
+            print(
+                f"\n[ALEX_TEST] [LudwigModel.predict()] SELF.MODEL.MODEL:\n{self.model.model} ; TYPE: {str(type(self.model.model))}"
+            )
+            print(f"\n[ALEX_TEST] [LudwigModel.predict()] DATASET-1:\n{dataset} ; TYPE: {str(type(dataset))}")
+            # output_features = self.config_obj.output_features
+            # print(f'\n[ALEX_TEST] [LudwigModel.predict()] OUTPUT_COLUMN:\n{output_features[0].column} ; TYPE: {str(type(output_features[0].column))}')
+            # print(f'\n[ALEX_TEST] [LudwigModel.predict()] OUTPUT_COLUMN:\n{output_features[0].proc_column} ; TYPE: {str(type(output_features[0].proc_column))}')
+            # TODO: <Alex>ALEX</Alex>
+            # targets = self.config_obj.output_features[0].column
+            # print(f'\n[ALEX_TEST] [LudwigModel.predict()] TARGETS:\n{targets} ; TYPE: {str(type(targets))}')
+            # preds = self.model.predict(targets=targets, dataset=dataset)
+            # TODO: <Alex>ALEX</Alex>
+            # TODO: <Alex>ALEX</Alex>
+            preds = self.model.predict(dataset=dataset)
+            # TODO: <Alex>ALEX</Alex>
+            print(f"\n[ALEX_TEST] [LudwigModel.predict()] PREDICTIONS:\n{preds} ; TYPE: {str(type(preds))}")
+            return preds
+        else:
+            dataset, _ = preprocess_for_prediction(  # TODO (Connor): Refactor to use self.config_obj
+                self.config_obj.to_dict(),
+                dataset=dataset,
+                training_set_metadata=self.training_set_metadata,
+                data_format=data_format,
+                split=split,
+                include_outputs=False,
+                backend=self.backend,
+                callbacks=self.callbacks + (callbacks or []),
+            )
+        # TODO: <Alex>ALEX</Alex>
+        print(f"\n[ALEX_TEST] [LudwigModel.predict()] DATASET-2:\n{dataset} ; TYPE: {str(type(dataset))}")
 
         logger.debug("Predicting")
         with self.backend.create_predictor(self.model, batch_size=batch_size) as predictor:
@@ -1642,13 +1727,21 @@ class LudwigModel:
 
     @staticmethod
     def load(
-        model_dir: str,
+        # TODO: <Alex>ALEX</Alex>
+        # model_dir: str,
+        # TODO: <Alex>ALEX</Alex>
+        # TODO: <Alex>ALEX</Alex>
+        model_dir: str = None,
+        # TODO: <Alex>ALEX</Alex>
         logging_level: int = logging.ERROR,
         backend: Optional[Union[Backend, str]] = None,
         gpus: Optional[Union[str, int, List[int]]] = None,
         gpu_memory_limit: Optional[float] = None,
         allow_parallel_threads: bool = True,
         callbacks: List[Callback] = None,
+        # TODO: <Alex>ALEX</Alex>
+        model_name: str = None,
+        # TODO: <Alex>ALEX</Alex>
     ) -> "LudwigModel":  # return is an instance of ludwig.api.LudwigModel class
         """This function allows for loading pretrained models.
 
@@ -1686,13 +1779,48 @@ class LudwigModel:
         """
         # Initialize Horovod and PyTorch before calling `broadcast()` to prevent initializing
         # Torch with default parameters
+        # TODO: <Alex>ALEX</Alex>
+        print(f"\n[ALEX_TEST] [LudwigModel.load()] MODEL_NAME:\n{model_name} ; TYPE: {str(type(model_name))}")
+        print(f"\n[ALEX_TEST] [LudwigModel.load()] BACKEND:\n{backend} ; TYPE: {str(type(backend))}")
+        model_obj = None
+        if model_name:
+            model_obj = PredibaseModel()
+            model_obj.load_model(model_name=model_name, load_model_repo=True)
+            model_repo: PredibaseModelRepo = model_obj.model_repo
+            print(f"\n[ALEX_TEST] [LudwigModel.load()] MODEL_REPO:\n{model_repo} ; TYPE: {str(type(model_repo))}")
+            print(f"\n[ALEX_TEST] [LudwigModel.load()] MODEL:\n{model_obj.model} ; TYPE: {str(type(model_obj.model))}")
+            config = model_repo.latest_config
+            print(f"\n[ALEX_TEST] [LudwigModel.load()] LATEST_CONFIG:\n{config} ; TYPE: {str(type(config))}")
+            # TODO: <Alex>ALEX</Alex>
+            config_obj = ModelConfig.from_dict(config)
+            model_obj.config_obj = config_obj
+            # ludwig_model = LudwigModel(
+            #     config_obj.to_dict(),
+            #     logging_level=logging_level,
+            #     backend=backend,
+            #     gpus=gpus,
+            #     gpu_memory_limit=gpu_memory_limit,
+            #     allow_parallel_threads=allow_parallel_threads,
+            #     callbacks=callbacks,
+            # )
+            # TODO: <Alex>ALEX</Alex>
+
+        # TODO: <Alex>ALEX</Alex>
         backend_param = backend
         backend = initialize_backend(backend)
         backend.initialize_pytorch(
             gpus=gpus, gpu_memory_limit=gpu_memory_limit, allow_parallel_threads=allow_parallel_threads
         )
 
-        config = backend.broadcast_return(lambda: load_json(os.path.join(model_dir, MODEL_HYPERPARAMETERS_FILE_NAME)))
+        # TODO: <Alex>ALEX</Alex>
+        # config = backend.broadcast_return(lambda: load_json(os.path.join(model_dir, MODEL_HYPERPARAMETERS_FILE_NAME)))
+        # TODO: <Alex>ALEX</Alex>
+        # TODO: <Alex>ALEX</Alex>
+        if not model_name:
+            config = backend.broadcast_return(
+                lambda: load_json(os.path.join(model_dir, MODEL_HYPERPARAMETERS_FILE_NAME))
+            )
+        # TODO: <Alex>ALEX</Alex>
 
         # Upgrades deprecated fields and adds new required fields in case the config loaded from disk is old.
         config_obj = ModelConfig.from_dict(config)
@@ -1713,23 +1841,51 @@ class LudwigModel:
             callbacks=callbacks,
         )
 
+        # TODO: <Alex>ALEX</Alex>
         # generate model from config
         set_saved_weights_in_checkpoint_flag(config_obj)
         ludwig_model.model = LudwigModel.create_model(config_obj)
+        # TODO: <Alex>ALEX</Alex>
+        # TODO: <Alex>ALEX</Alex>
+        if model_name:
+            ludwig_model.model = model_obj
+        # TODO: <Alex>ALEX</Alex>
 
-        # load model weights
-        ludwig_model.load_weights(model_dir)
+        # TODO: <Alex>ALEX</Alex>
+        # # load model weights
+        # ludwig_model.load_weights(model_dir)
 
-        # The LoRA layers appear to be loaded again (perhaps due to a potential bug); hence, we merge and unload again.
-        if ludwig_model.is_merge_and_unload_set():
-            # For an LLM model trained with a LoRA adapter, handle merge and unload postprocessing directives.
-            ludwig_model.model.merge_and_unload(progressbar=config_obj.adapter.postprocessor.progressbar)
+        # # The LoRA layers appear to be loaded again (perhaps due to a potential bug); hence, we merge and unload again.
+        # if ludwig_model.is_merge_and_unload_set():
+        #     # For an LLM model trained with a LoRA adapter, handle merge and unload postprocessing directives.
+        #     ludwig_model.model.merge_and_unload(progressbar=config_obj.adapter.postprocessor.progressbar)
+
+        # TODO: <Alex>ALEX</Alex>
+        # TODO: <Alex>ALEX</Alex>
+        if not isinstance(ludwig_model.model, PredibaseModel):
+            ludwig_model.load_weights(model_dir)
+
+            # The LoRA layers appear to be loaded again (perhaps due to a potential bug); hence, we merge and unload again.
+            if ludwig_model.is_merge_and_unload_set():
+                # For an LLM model trained with a LoRA adapter, handle merge and unload postprocessing directives.
+                ludwig_model.model.merge_and_unload(progressbar=config_obj.adapter.postprocessor.progressbar)
+        # TODO: <Alex>ALEX</Alex>
 
         # load train set metadata
-        ludwig_model.training_set_metadata = backend.broadcast_return(
-            lambda: load_metadata(os.path.join(model_dir, TRAIN_SET_METADATA_FILE_NAME))
-        )
+        # TODO: <Alex>ALEX</Alex>
+        # ludwig_model.training_set_metadata = backend.broadcast_return(
+        #     lambda: load_metadata(os.path.join(model_dir, TRAIN_SET_METADATA_FILE_NAME))
+        # )
+        # TODO: <Alex>ALEX</Alex>
+        # TODO: <Alex>ALEX</Alex>
+        # print(f'\n[ALEX_TEST] [LudwigModel.load()] LUDWIG_MODEL.MODEL:\n{ludwig_model.model} ; TYPE: {str(type(ludwig_model.model))}')
+        if not isinstance(ludwig_model.model, PredibaseModel):
+            ludwig_model.training_set_metadata = backend.broadcast_return(
+                lambda: load_metadata(os.path.join(model_dir, TRAIN_SET_METADATA_FILE_NAME))
+            )
+        # TODO: <Alex>ALEX</Alex>
 
+        print(f"\n[ALEX_TEST] [LudwigModel.load()] LUDWIG_MODEL:\n{ludwig_model} ; TYPE: {str(type(ludwig_model))}")
         return ludwig_model
 
     def load_weights(
@@ -1915,8 +2071,15 @@ class LudwigModel:
         )
 
     def _check_initialization(self):
-        if self.model is None or self._user_config is None or self.training_set_metadata is None:
-            raise ValueError("Model has not been trained or loaded")
+        # TODO: <Alex>ALEX</Alex>
+        # if self.model is None or self._user_config is None or self.training_set_metadata is None:
+        #     raise ValueError("Model has not been trained or loaded")
+        # TODO: <Alex>ALEX</Alex>
+        # TODO: <Alex>ALEX</Alex>
+        if not isinstance(self.model, PredibaseModel):
+            if self.model is None or self._user_config is None or self.training_set_metadata is None:
+                raise ValueError("Model has not been trained or loaded")
+        # TODO: <Alex>ALEX</Alex>
 
     def free_gpu_memory(self):
         """Manually moves the model to CPU to force GPU memory to be freed.
@@ -1928,7 +2091,9 @@ class LudwigModel:
             torch.cuda.empty_cache()
 
     @staticmethod
-    def create_model(config_obj: Union[ModelConfig, dict], random_seed: int = default_random_seed) -> BaseModel:
+    def create_model(
+        config_obj: Union[ModelConfig, dict], random_seed: int = default_random_seed, user_config=None
+    ) -> BaseModel:
         """Instantiates BaseModel object.
 
         # Inputs
@@ -1942,8 +2107,52 @@ class LudwigModel:
         """
         if isinstance(config_obj, dict):
             config_obj = ModelConfig.from_dict(config_obj)
+        # print(f'\n[ALEX_TEST] [LudwigModel.create_model()] CONFIG_OBJ:\n{config_obj} ; TYPE: {str(type(config_obj))}')
+        # print(f'\n[ALEX_TEST] [LudwigModel.create_model()] CONFIG_OBJ.TRAINER:\n{config_obj.trainer} ; TYPE: {str(type(config_obj))}')
+        print(
+            f"\n[ALEX_TEST] [LudwigModel.create_model()] CONFIG_OBJ.TRAINER.TYPE:\n{config_obj.trainer.type} ; TYPE: {str(type(config_obj.trainer.type))}"
+        )
+        print(
+            f"\n[ALEX_TEST] [LudwigModel.create_model()] CONFIG_OBJ.MODEL_TYPE:\n{config_obj.model_type} ; TYPE: {str(type(config_obj.model_type))}"
+        )
+        print(
+            f"\n[ALEX_TEST] [LudwigModel.create_model()] CONFIG_OBJ.BACKEND:\n{config_obj.backend} ; TYPE: {str(type(config_obj.backend))}"
+        )
+        print(
+            f'\n[ALEX_TEST] [LudwigModel.create_model()] CONFIG_OBJ.BACKEND["TYPE"]:\n{config_obj.backend["type"]} ; TYPE: {str(type(config_obj.backend["type"]))}'
+        )
+        # TODO: <Alex>ALEX</Alex>
+        """
+        [ALEX_TEST] [LudwigModel.create_model()] CONFIG_OBJ.TRAINER.TYPE: predibase_finetune ; TYPE: <class 'str'>
+
+        [ALEX_TEST] [LudwigModel.create_model()] CONFIG_OBJ.MODEL_TYPE: llm ; TYPE: <class 'str'>
+
+        [ALEX_TEST] [LudwigModel.create_model()] CONFIG_OBJ.BACKEND["TYPE"]: predibase ; TYPE: <class 'str'>
+        """
+        # TODO: <Alex>ALEX</Alex>
+        # if config_obj.trainer.type == "predibase_finetune" and config_obj.model_type == "llm" and config_obj.backend["type"] == "predibase":
+        #     user_config["trainer"]["type"] = "finetune"
+        #     model_obj = PredibaseModel(config_obj=config_obj, predibase_config=user_config)
+        #     return model_obj
+        # TODO: <Alex>ALEX</Alex>
+        # TODO: <Alex>ALEX</Alex>
+        if config_obj.backend["type"] == "predibase":
+            model_obj = PredibaseModel(config_obj=config_obj, predibase_config=user_config)
+            return model_obj
+        # TODO: <Alex>ALEX</Alex>
+        # TODO: <Alex>ALEX</Alex>
         model_type = get_from_registry(config_obj.model_type, model_type_registry)
-        return model_type(config_obj, random_seed=random_seed)
+        print(
+            f"\n[ALEX_TEST] [LudwigModel.create_model()] MODEL_TYPE:\n{model_type} ; TYPE: {str(type(model_type))} -- NOW_TRYING_TO_INSTANTIATE_{model_type}"
+        )
+        # TODO: <Alex>ALEX</Alex>
+        # return model_type(config_obj, random_seed=random_seed)
+        # TODO: <Alex>ALEX</Alex>
+        # TODO: <Alex>ALEX</Alex>
+        obj = model_type(config_obj, random_seed=random_seed)
+        print(f"\n[ALEX_TEST] [LudwigModel.create_model()] MODEL_OBJ:\n{obj} ; TYPE: {str(type(obj))}")
+        return obj
+        # TODO: <Alex>ALEX</Alex>
 
     @staticmethod
     def set_logging_level(logging_level: int) -> None:

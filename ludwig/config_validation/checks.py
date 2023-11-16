@@ -479,8 +479,14 @@ def check_llm_finetuning_output_feature_config(config: "ModelConfig"):  # noqa: 
     if config.model_type != MODEL_LLM:
         return
 
-    if config.trainer.type != "finetune":
+    # TODO: <Alex>ALEX</Alex>
+    # if config.trainer.type != "finetune":
+    #     return
+    # TODO: <Alex>ALEX</Alex>
+    # TODO: <Alex>ALEX</Alex>
+    if config.trainer.type not in ["finetune", "predibase_finetune"]:
         return
+    # TODO: <Alex>ALEX</Alex>
 
     if config.output_features[0].type != TEXT:
         raise ConfigValidationError(
@@ -503,8 +509,14 @@ def check_llm_finetuning_trainer_config(config: "ModelConfig"):  # noqa: F821
         # If performing zero-shot, we must specify pretrained adapter weights
         return
 
-    if config.adapter is not None and config.trainer.type != "finetune":
-        raise ConfigValidationError("LLM finetuning requires trainer type to be finetune.")
+    # TODO: <Alex>ALEX</Alex>
+    # if config.adapter is not None and config.trainer.type != "finetune":
+    #     raise ConfigValidationError("LLM finetuning requires trainer type to be finetune.")
+    # TODO: <Alex>ALEX</Alex>
+    # TODO: <Alex>ALEX</Alex>
+    if config.adapter is not None and config.trainer.type not in ["finetune", "predibase_finetune"]:
+        raise ConfigValidationError("LLM finetuning requires trainer type to be finetune or predibase_finetune.")
+    # TODO: <Alex>ALEX</Alex>
 
 
 @register_config_check
@@ -519,7 +531,12 @@ def check_llm_finetuning_backend_config(config: "ModelConfig"):  # noqa: F821
 
     # LLM finetuning is only supported by the finetune trainer type
     if (
-        config.trainer.type != "finetune"
+        # TODO: <Alex>ALEX</Alex>
+        # config.trainer.type != "finetune"
+        # TODO: <Alex>ALEX</Alex>
+        # TODO: <Alex>ALEX</Alex>
+        config.trainer.type not in ["finetune", "predibase_finetune"]
+        # TODO: <Alex>ALEX</Alex>
         and config.adapter is not None
         and config.adapter.pretrained_adapter_weights is not None
     ):

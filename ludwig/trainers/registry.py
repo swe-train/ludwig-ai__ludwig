@@ -87,6 +87,9 @@ def register_llm_trainer(trainer_type: str, default=False):
 
     def wrap(cls):
         _llm_trainers_registry[trainer_type] = cls
+        print(
+            f"\n[ALEX_TEST] [Registry::register_llm_trainer()] TRAINER_TYPE:\n{trainer_type} ; TYPE: {str(type(trainer_type))}"
+        )
         if default:
             if DEFAULT_KEYS[0] in _trainers_registry:
                 raise ValueError(f"Default trainer {trainer_type} already registered for LLM")

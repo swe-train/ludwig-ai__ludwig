@@ -20,6 +20,11 @@ import os
 
 from ludwig.api_annotations import DeveloperAPI
 from ludwig.backend.base import Backend, LocalBackend
+
+# TODO: <Alex>ALEX</Alex>
+from ludwig.backend.predibase import PredibaseBackend
+
+# TODO: <Alex>ALEX</Alex>
 from ludwig.utils.horovod_utils import has_horovodrun
 
 logger = logging.getLogger(__name__)
@@ -34,8 +39,11 @@ DASK = "dask"
 HOROVOD = "horovod"
 DEEPSPEED = "deepspeed"
 RAY = "ray"
+# TODO: <Alex>ALEX</Alex>
+PREDIBASE = "predibase"
+# TODO: <Alex>ALEX</Alex>
 
-ALL_BACKENDS = [LOCAL, DASK, HOROVOD, DEEPSPEED, RAY]
+ALL_BACKENDS = [LOCAL, DASK, HOROVOD, DEEPSPEED, RAY, PREDIBASE]
 
 
 def _has_ray():
@@ -81,12 +89,23 @@ def create_ray_backend(**kwargs):
     return RayBackend(**kwargs)
 
 
+# TODO: <Alex>ALEX</Alex>
+def create_predibase_backend(**kwargs):
+    return PredibaseBackend(**kwargs)
+
+
+# TODO: <Alex>ALEX</Alex>
+
+
 backend_registry = {
     LOCAL: get_local_backend,
     HOROVOD: create_horovod_backend,
     DEEPSPEED: create_deepspeed_backend,
     RAY: create_ray_backend,
     None: get_local_backend,
+    # TODO: <Alex>ALEX</Alex>
+    PREDIBASE: create_predibase_backend
+    # TODO: <Alex>ALEX</Alex>
 }
 
 

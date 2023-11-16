@@ -455,3 +455,15 @@ class RemoteLLMFineTuneTrainer(FineTuneTrainer):
         # Only return results from rank 0 to reduce network overhead
         self.train = self.distributed.return_first(self.train)
         self.train_online = self.distributed.return_first(self.train_online)
+
+
+@register_llm_trainer("predibase_finetune")
+class PredibaseLLMFineTuneTrainer(RemoteLLMFineTuneTrainer):
+    def __init__(self, gpus=None, gpu_memory_limit=None, allow_parallel_threads=True, **kwargs):
+        super().__init__(**kwargs)
+
+        # TODO: <Alex>ALEX</Alex>
+        # Only return results from rank 0 to reduce network overhead
+        # self.train = self.distributed.return_first(self.train)
+        # self.train_online = self.distributed.return_first(self.train_online)
+        # TODO: <Alex>ALEX</Alex>

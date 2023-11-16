@@ -915,6 +915,30 @@ class FineTuneTrainerConfig(ECDTrainerConfig):
     )
 
 
+# TODO: <Alex>ALEX</Alex>
+@DeveloperAPI
+@register_llm_trainer_schema("predibase_finetune")
+@ludwig_dataclass
+class PredibaseFineTuneTrainerConfig(FineTuneTrainerConfig):
+    """Dataclass that configures most of the hyperparameters used for fine-tuning LLM model training."""
+
+    # Required for lookup during trainer initialization
+    type: str = schema_utils.ProtectedString("predibase_finetune")
+
+    base_learning_rate: float = schema_utils.NonNegativeFloat(
+        default=0.0,
+        description="Base learning rate used for training in the Predibase LLM trainer.",
+    )
+
+    eval_batch_size: int = schema_utils.PositiveInteger(
+        default=2,
+        description="Batch size used for evaluation in the Predibase LLM trainer.",
+    )
+
+
+# TODO: <Alex>ALEX</Alex>
+
+
 @DeveloperAPI
 def get_model_type_jsonschema(model_type: str = MODEL_ECD):
     enum = [MODEL_ECD]
