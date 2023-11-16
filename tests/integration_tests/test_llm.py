@@ -1081,7 +1081,7 @@ def test_llm_continued_pretraining(csv_filename, tmpdir):
 
     config = {
         MODEL_TYPE: MODEL_LLM,
-        BASE_MODEL: "facebook/opt-125m",
+        BASE_MODEL: "HuggingFaceH4/tiny-random-LlamaForCausalLM",
         INPUT_FEATURES: input_features,
         OUTPUT_FEATURES: [],
         PREPROCESSING: {
@@ -1111,7 +1111,7 @@ def test_llm_pretraining_from_scratch(csv_filename, tmpdir):
 
     config = {
         MODEL_TYPE: MODEL_LLM,
-        BASE_MODEL: "facebook/opt-125m",
+        BASE_MODEL: "HuggingFaceH4/tiny-random-LlamaForCausalLM",
         INPUT_FEATURES: input_features,
         # TODO: Add model_config to base config
         TRAINER: {
