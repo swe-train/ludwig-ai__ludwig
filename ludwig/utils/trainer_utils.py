@@ -1,11 +1,13 @@
 import logging
 from collections import defaultdict
-from typing import Dict, List, Tuple, TYPE_CHECKING
+from typing import Any, Dict, List, Tuple, TYPE_CHECKING
 
 try:
     from typing import Literal
 except ImportError:
     from typing_extensions import Literal
+
+import torch
 
 from ludwig.api_annotations import DeveloperAPI
 from ludwig.constants import AUTO, COMBINED, LOSS
@@ -390,3 +392,10 @@ def get_rendered_batch_size_grad_accum(config: "BaseTrainerConfig", num_workers:
                 gradient_accumulation_steps = 1
 
     return batch_size, gradient_accumulation_steps
+
+
+def prepare_batch_dict(feature_dict: List[str], batch: Dict, device: torch.device) -> Dict[str, Any]:
+    return {
+        feat.feature_name: torch.from_numpy(batch[feat.proc_column], copy=True).to(device)
+        for feat in feature_dict.values()
+    }
