@@ -1095,7 +1095,7 @@ class Trainer(BaseTrainer):
             progress_tracker.test_metrics,
         )
 
-    def prepare_batch_inputs_outputs(self, batch):
+    def prepare_batch_inputs_targets(self, batch):
         inputs = prepare_batch_dict(self.model.input_features, batch, self.device)
         targets = prepare_batch_dict(self.model.output_features, batch, self.device)
         return (inputs, targets)
@@ -1148,7 +1148,7 @@ class Trainer(BaseTrainer):
             #     for o_feat in self.model.output_features.values()
             # }
 
-            inputs, targets = self.prepare_batch_inputs_outputs(batch)
+            inputs, targets = self.prepare_batch_inputs_targets(batch)
 
             loss, all_losses = self.train_step(inputs, targets, should_step=should_step, profiler=profiler)
 

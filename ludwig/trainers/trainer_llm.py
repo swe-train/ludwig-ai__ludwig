@@ -445,7 +445,7 @@ class PretrainTrainer(Trainer):
     def get_schema_cls():
         return PretrainTrainerConfig
 
-    def prepare_batch_inputs_outputs(self, batch):
+    def prepare_batch_inputs_targets(self, batch):
         inputs = prepare_batch_dict(self.model.input_features, batch, self.device)
         targets = prepare_batch_dict(self.model.input_features, batch, self.device)
         return (inputs, targets)
