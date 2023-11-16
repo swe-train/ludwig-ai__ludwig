@@ -255,6 +255,9 @@ class DaskEngine(DataFrameEngine):
     def reset_index(self, df):
         return reset_index_across_all_partitions(df)
 
+    def explode(self, df, column):
+        return df.explode(column)
+
     @property
     def array_lib(self):
         return da

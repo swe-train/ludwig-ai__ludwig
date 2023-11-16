@@ -103,3 +103,7 @@ class DataFrameEngine(ABC):
     @abstractmethod
     def set_parallelism(self, parallelism):
         raise NotImplementedError()
+
+    @abstractmethod
+    def explode(self, df, columns):
+        raise NotImplementedError()

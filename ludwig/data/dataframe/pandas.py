@@ -58,7 +58,7 @@ class PandasEngine(DataFrameEngine):
         return map_fn(series)
 
     def apply_objects(self, df, apply_fn, meta=None):
-        return df.apply(apply_fn, axis=1)
+        return df.apply(apply_fn)
 
     def reduce_objects(self, series, reduce_fn):
         return reduce_fn(series)
@@ -110,6 +110,9 @@ class PandasEngine(DataFrameEngine):
 
     def set_parallelism(self, parallelism):
         pass
+
+    def explode(self, df, column):
+        return df.explode(column)
 
 
 PANDAS = PandasEngine()

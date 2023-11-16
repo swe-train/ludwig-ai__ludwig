@@ -110,3 +110,6 @@ class ModinEngine(DataFrameEngine):
 
     def set_parallelism(self, parallelism):
         pass
+
+    def explode(self, df, column):
+        return df.explode(column)

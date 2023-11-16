@@ -16,6 +16,7 @@ from ludwig.constants import (
     BATCH_SIZE,
     EPOCHS,
     GENERATION,
+    GLOBAL_MAX_SEQUENCE_LENGTH,
     INPUT_FEATURES,
     MERGE_ADAPTER_INTO_BASE_MODEL,
     MODEL_LLM,
@@ -1024,7 +1025,7 @@ def test_global_max_sequence_length_for_llms():
     assert model.global_max_sequence_length == 2048
 
     # Override to a larger value in the config
-    config["preprocessing"] = {"global_max_sequence_length": 4096}
+    config["preprocessing"] = {GLOBAL_MAX_SEQUENCE_LENGTH: 4096}
     config_obj = ModelConfig.from_dict(config)
     model = LLM(config_obj)
 
@@ -1068,15 +1069,24 @@ def test_local_path_loading(tmpdir):
 
 
 def test_llm_continued_pretraining(csv_filename, tmpdir):
-    input_features = [text_feature(name="input", encoder={"type": "passthrough"})]
+    input_features = [
+        text_feature(
+            name="input",
+            encoder={"type": "passthrough"},
+            preprocessing={"vocab_size": 100},
+        )
+    ]
 
-    df = generate_data(input_features, [], filename=csv_filename, num_examples=25)
+    df = generate_data(input_features, [], filename=csv_filename, num_examples=1)
 
     config = {
         MODEL_TYPE: MODEL_LLM,
         BASE_MODEL: "facebook/opt-125m",
         INPUT_FEATURES: input_features,
         OUTPUT_FEATURES: [],
+        PREPROCESSING: {
+            GLOBAL_MAX_SEQUENCE_LENGTH: 4,
+        },
         TRAINER: {
             TYPE: "pretrain",
             BATCH_SIZE: 1,
@@ -1089,7 +1099,13 @@ def test_llm_continued_pretraining(csv_filename, tmpdir):
 
 
 def test_llm_pretraining_from_scratch(csv_filename, tmpdir):
-    input_features = [text_feature(name="input", encoder={"type": "passthrough"})]
+    input_features = [
+        text_feature(
+            name="input",
+            encoder={"type": "passthrough"},
+            preprocessing={"vocab_size": 100, "min_length": 20, "max_length": 20},
+        )
+    ]
 
     df = generate_data(input_features, [], filename=csv_filename, num_examples=25)
 

@@ -17,7 +17,7 @@ import contextlib
 import logging
 import warnings
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -40,12 +40,15 @@ from ludwig.constants import (
     FILL_WITH_MODE,
     FILL_WITH_TRUE,
     FULL,
+    GLOBAL_MAX_SEQUENCE_LENGTH,
     META,
     MIN_DATASET_SPLIT_ROWS,
     MODEL_ECD,
+    MODEL_LLM,
     NAME,
     NUMBER,
     PREPROCESSING,
+    PRETRAIN,
     PROC_COLUMN,
     SPLIT,
     SRC,
@@ -119,6 +122,7 @@ from ludwig.utils.defaults import (
 )
 from ludwig.utils.fs_utils import file_lock, path_exists
 from ludwig.utils.misc_utils import get_from_registry, merge_dict
+from ludwig.utils.tokenizers import HFTokenizer
 from ludwig.utils.types import DataFrame, Series
 
 REPARTITIONING_FEATURE_TYPES = {"image", "audio"}
@@ -1254,9 +1258,6 @@ def build_dataset(
         dataset_cols, feature_configs, global_preprocessing_parameters, backend, metadata=metadata
     )
 
-    # Happens after preprocessing parameters are built, so we can use precomputed fill values.
-    logger.debug("handle missing values")
-
     # In some cases, there can be a (temporary) mismatch between the dtype of the column and the type expected by the
     # preprocessing config (e.g., a categorical feature represented as an int-like column). In particular, Dask
     # may raise an error even when there are no missing values in the column itself.
@@ -1266,6 +1267,8 @@ def build_dataset(
     for col_key in dataset_cols:
         dataset_cols[col_key] = dataset_cols[col_key].astype(object)
 
+    # Happens after preprocessing parameters are built, so we can use precomputed fill values.
+    logger.debug("handle missing values")
     for feature_config in feature_configs:
         preprocessing_parameters = feature_name_to_preprocessing_parameters[feature_config[NAME]]
         handle_missing_values(dataset_cols, feature_config, preprocessing_parameters, backend)
@@ -1292,6 +1295,10 @@ def build_dataset(
 
     logger.debug("build data")
     proc_cols = build_data(dataset_cols, feature_configs, metadata, backend, skip_save_processed_input)
+
+    dataset_df = handle_preprocessing_for_llm_pretraining(
+        config, dataset_df, proc_cols, feature_configs, metadata, global_preprocessing_parameters, backend
+    )
 
     for callback in callbacks or []:
         callback.on_build_data_end(dataset_df, mode)
@@ -1829,6 +1836,55 @@ def handle_features_with_prompt_config(
         )
 
     return dataset_cols
+
+
+def handle_preprocessing_for_llm_pretraining(
+    config: ModelConfigDict,
+    dataset_df: DataFrame,
+    proc_cols: Dict[str, Series],
+    feature_configs: List[FeatureConfigDict],
+    metadata: Dict[str, Union[str, Dict[str, Any]]],
+    global_preprocessing_parameters: PreprocessingConfigDict,
+    backend: Backend,
+) -> DataFrame:
+    """Create windowed token sequences for LLM pretraining."""
+    if config.get("model_type") != MODEL_LLM:
+        return
+
+    if config.get("trainer").get("type") != PRETRAIN:
+        return
+
+    proc_cols_input_feature_name = list(proc_cols.keys())[0]
+    # TODO(Arnav): For pretrain type trainer, default to 512 GMSL during config validation if not specified.
+    window_size = global_preprocessing_parameters.get(GLOBAL_MAX_SEQUENCE_LENGTH, 512)
+
+    # Create windowed pairs for LLM pretraining using the global max sequence length specified in the config.
+    proc_cols[proc_cols_input_feature_name] = backend.df_engine.apply_objects(
+        proc_cols[proc_cols_input_feature_name],
+        lambda x: [x[i : i + window_size] for i in range(len(x) - window_size + 1)],
+    )
+    proc_cols[proc_cols_input_feature_name] = backend.df_engine.explode(
+        proc_cols[proc_cols_input_feature_name], proc_cols_input_feature_name
+    )
+
+    # Update dataset_df to reflect the new sequences in proc_cols.
+    input_feature_name = feature_configs[0][NAME]
+    tokenizer = HFTokenizer(
+        config.get("base_model"), padding_side=metadata[input_feature_name]["preprocessing"]["padding"]
+    )
+    decoded_sequences = backend.df_engine.apply_objects(
+        proc_cols[proc_cols_input_feature_name],
+        lambda x: tokenizer.tokenizer.batch_decode([x], skip_special_tokens=True)[0],
+    )
+    dataset_df = decoded_sequences.to_frame()
+
+    # Update metadata to reflect the new sequences in proc_cols.
+    metadata[input_feature_name]["max_sequence_length"] = window_size
+    metadata[input_feature_name]["max_sequence_length_99ptile"] = window_size
+    metadata[input_feature_name]["preprocessing"]["max_sequence_length"] = window_size
+    metadata[input_feature_name]["preprocessing"]["max_sequence_length_99ptile"] = window_size
+
+    return dataset_df
 
 
 def _get_prompt_config(config: ModelConfigDict, input_feature_config: Dict) -> Dict:

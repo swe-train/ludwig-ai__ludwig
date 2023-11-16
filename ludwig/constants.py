@@ -124,6 +124,8 @@ START_SYMBOL = "<SOS>"
 PADDING_SYMBOL = "<PAD>"
 UNKNOWN_SYMBOL = "<UNK>"
 
+GLOBAL_MAX_SEQUENCE_LENGTH = "global_max_sequence_length"
+
 TRAINER = "trainer"
 OPTIMIZER = "optimizer"
 METRIC = "metric"
@@ -292,6 +294,10 @@ PROGRESSBAR = "progressbar"
 
 # CrossEntropyLoss for LLMs
 IGNORE_INDEX_TOKEN_ID = -100
+
+# LLM Trainers
+FINETUNE = "finetune"
+PRETRAIN = "pretrain"
 
 S3 = "s3"
 CACHE = "cache"
