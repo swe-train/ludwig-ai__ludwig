@@ -1096,6 +1096,7 @@ class Trainer(BaseTrainer):
         )
 
     def prepare_batch_inputs_targets(self, batch):
+        # Move tensors to cuda here.
         inputs = prepare_batch_dict(self.model.input_features, batch, self.device)
         targets = prepare_batch_dict(self.model.output_features, batch, self.device)
         return (inputs, targets)
@@ -1138,7 +1139,6 @@ class Trainer(BaseTrainer):
             should_step = should_sync_grads or is_checkpoint_step
             batch_idx += 1
 
-            # Move tensors to cuda here.
             # inputs = {
             #     i_feat.feature_name: torch.from_numpy(np.array(batch[i_feat.proc_column], copy=True)).to(self.device)
             #     for i_feat in self.model.input_features.values()

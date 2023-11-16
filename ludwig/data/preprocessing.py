@@ -67,8 +67,10 @@ from ludwig.data.split import get_splitter, split_dataset
 from ludwig.data.utils import get_input_and_output_features, set_fixed_split
 from ludwig.datasets import load_dataset_uris
 from ludwig.features.feature_registries import get_base_type_registry
+from ludwig.features.feature_utils import compute_feature_hash
 from ludwig.models.embedder import create_embed_batch_size_evaluator, create_embed_transform_fn
 from ludwig.schema.encoders.utils import get_encoder_cls
+from ludwig.schema.features.text_feature import LLMTextOutputFeatureConfig
 from ludwig.types import FeatureConfigDict, ModelConfigDict, PreprocessingConfigDict, TrainingSetMetadataDict
 from ludwig.utils import data_utils, strings_utils
 from ludwig.utils.backward_compatibility import upgrade_metadata
@@ -1859,12 +1861,18 @@ def handle_preprocessing_for_llm_pretraining(
     window_size = global_preprocessing_parameters.get(GLOBAL_MAX_SEQUENCE_LENGTH, 512)
 
     # Create windowed pairs for LLM pretraining using the global max sequence length specified in the config.
+    # Log number of training samples that will be created after windowing.
+    logger.info(f"Creating windowed pairs for LLM pretraining with window size {window_size}.")
+    logger.info(f"Number of training samples before windowing: {len(dataset_df)}")
     proc_cols[proc_cols_input_feature_name] = backend.df_engine.apply_objects(
         proc_cols[proc_cols_input_feature_name],
         lambda x: [x[i : i + window_size] for i in range(len(x) - window_size + 1)],
     )
     proc_cols[proc_cols_input_feature_name] = backend.df_engine.explode(
         proc_cols[proc_cols_input_feature_name], proc_cols_input_feature_name
+    )
+    logger.info(
+        f"Number of training samples created after windowing: {proc_cols[proc_cols_input_feature_name].shape[0]}"
     )
 
     # Update dataset_df to reflect the new sequences in proc_cols.
@@ -1878,11 +1886,24 @@ def handle_preprocessing_for_llm_pretraining(
     )
     dataset_df = decoded_sequences.to_frame()
 
+    # Manually create a new "proxy" output feature called "output" so that we can create a decoder with the
+    # right metrics.
+    proxy_output_feature_config = LLMTextOutputFeatureConfig(name="output", column="output")
+    proxy_output_feature_config.decoder.pretrained_model_name_or_path = config.get("base_model")
+    proxy_output_feature_config.decoder.max_sequence_length = window_size
+    proxy_output_feature_config.decoder.max_new_tokens = config.get("generation").get("max_new_tokens")
+    proxy_output_feature_config.preprocessing.pretrained_model_name_or_path = config.get("base_model")
+    proxy_output_feature_config.preprocessing.tokenizer = "hf_tokenizer"
+    proxy_output_feature_config.preprocessing.padding = "left"
+    proxy_output_feature_config.proc_column = compute_feature_hash(proxy_output_feature_config.to_dict())
+    config["output_features"] = [proxy_output_feature_config.to_dict()]
+
     # Update metadata to reflect the new sequences in proc_cols.
     metadata[input_feature_name]["max_sequence_length"] = window_size
     metadata[input_feature_name]["max_sequence_length_99ptile"] = window_size
     metadata[input_feature_name]["preprocessing"]["max_sequence_length"] = window_size
     metadata[input_feature_name]["preprocessing"]["max_sequence_length_99ptile"] = window_size
+    metadata["output"] = metadata[input_feature_name]
 
     return dataset_df
 

@@ -101,11 +101,10 @@ def load_pretrained_from_config(
 
     logger.info("Loading large language model...")
     pretrained_model_name_or_path = weights_save_path or config_obj.base_model
-    if not config_obj.model_config:
-        model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path, **load_kwargs)
-    else:
-        model = AutoModelForCausalLM.from_config(model_config)
-
+    # if not config_obj.model_config:
+    model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path, **load_kwargs)
+    # else:
+    #    model = AutoModelForCausalLM.from_config(model_config)
     return model
 
 
@@ -304,26 +303,26 @@ class LLM(BaseModel):
                 if self.config_obj.adapter:
                     from peft import PeftModel
 
-                    if not self.config_obj.model_config:
-                        self.model = AutoModelForCausalLM.from_pretrained(
-                            self.model_name,
-                            **model_kwargs,
-                        )
-                    else:
-                        self.model = AutoModelForCausalLM.from_config(self.model_config)
+                    # if not self.config_obj.model_config:
+                    self.model = AutoModelForCausalLM.from_pretrained(
+                        self.model_name,
+                        **model_kwargs,
+                    )
+                    # else:
+                    #     self.model = AutoModelForCausalLM.from_config(self.model_config, **model_kwargs)
                     self.model = PeftModel.from_pretrained(
                         self.model,
                         tmpdir,
                         torch_dtype=torch.float16,
                     )
                 else:
-                    if not self.config_obj.model_config:
-                        self.model = AutoModelForCausalLM.from_pretrained(
-                            self.model_name,
-                            **model_kwargs,
-                        )
-                    else:
-                        self.model = AutoModelForCausalLM.from_config(self.model_config)
+                    # if not self.config_obj.model_config:
+                    self.model = AutoModelForCausalLM.from_pretrained(
+                        self.model_name,
+                        **model_kwargs,
+                    )
+                    # else:
+                    #     self.model = AutoModelForCausalLM.from_config(self.model_config, **model_kwargs)
 
         else:
             self.model = self.model.to(device)
