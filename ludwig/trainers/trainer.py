@@ -69,6 +69,7 @@ from ludwig.utils.trainer_utils import (
     get_latest_metrics_dict,
     get_new_progress_tracker,
     get_total_steps,
+    prepare_batch_dict,
     ProgressTracker,
 )
 
@@ -1094,6 +1095,11 @@ class Trainer(BaseTrainer):
             progress_tracker.test_metrics,
         )
 
+    def prepare_batch_inputs_outputs(self, batch):
+        inputs = prepare_batch_dict(self.model.input_features, batch, self.device)
+        targets = prepare_batch_dict(self.model.output_features, batch, self.device)
+        return (inputs, targets)
+
     def _train_loop(
         self,
         batcher,
@@ -1133,14 +1139,16 @@ class Trainer(BaseTrainer):
             batch_idx += 1
 
             # Move tensors to cuda here.
-            inputs = {
-                i_feat.feature_name: torch.from_numpy(np.array(batch[i_feat.proc_column], copy=True)).to(self.device)
-                for i_feat in self.model.input_features.values()
-            }
-            targets = {
-                o_feat.feature_name: torch.from_numpy(np.array(batch[o_feat.proc_column], copy=True)).to(self.device)
-                for o_feat in self.model.output_features.values()
-            }
+            # inputs = {
+            #     i_feat.feature_name: torch.from_numpy(np.array(batch[i_feat.proc_column], copy=True)).to(self.device)
+            #     for i_feat in self.model.input_features.values()
+            # }
+            # targets = {
+            #     o_feat.feature_name: torch.from_numpy(np.array(batch[o_feat.proc_column], copy=True)).to(self.device)
+            #     for o_feat in self.model.output_features.values()
+            # }
+
+            inputs, targets = self.prepare_batch_inputs_outputs(batch)
 
             loss, all_losses = self.train_step(inputs, targets, should_step=should_step, profiler=profiler)
 
