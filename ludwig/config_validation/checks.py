@@ -734,3 +734,15 @@ def check_sample_ratio_and_size_compatible(config: "ModelConfig") -> None:
     sample_size = config.preprocessing.sample_size
     if sample_size is not None and sample_ratio < 1.0:
         raise ConfigValidationError("sample_size cannot be used when sample_ratio < 1.0")
+
+
+@register_config_check
+def check_llm_base_model_and_draft_model(config: "ModelConfig") -> None:
+    if config.model_type != MODEL_LLM:
+        return
+
+    if not config.draft_model:
+        return
+
+    if config.draft_model == config.base_model:
+        raise ConfigValidationError("draft_model cannot be the same as base_model")

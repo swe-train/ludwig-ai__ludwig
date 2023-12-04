@@ -14,6 +14,7 @@ from ludwig.features.feature_utils import LudwigFeatureDict
 from ludwig.features.text_feature import TextOutputFeature
 from ludwig.globals import MODEL_WEIGHTS_FILE_NAME
 from ludwig.models.base import BaseModel
+from ludwig.models.speculative_decoding import prefill, speculative_decode
 from ludwig.modules.training_hooks import NEFTuneHook
 from ludwig.schema.features.base import BaseOutputFeatureConfig, FeatureCollection
 from ludwig.schema.model_types.llm import LLMModelConfig
@@ -79,7 +80,7 @@ def load_pretrained_from_config(
     config_obj: LLMModelConfig,
     model_config: Optional[AutoConfig] = None,
     weights_save_path: Optional[str] = None,
-) -> PreTrainedModel:
+) -> Tuple[PreTrainedModel, Union[PreTrainedModel, None]]:
     load_kwargs = {}
     if config_obj.quantization:
         # Apply quanitzation configuration at model load time
@@ -103,7 +104,22 @@ def load_pretrained_from_config(
     logger.info("Loading large language model...")
     pretrained_model_name_or_path = weights_save_path or config_obj.base_model
     model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path, **load_kwargs)
-    return model
+    logger.info("Done.")
+
+    draft_model = None
+    if config_obj.draft_model:
+        logger.info("Loading draft model...")
+        # Since we're not fine-tuning draft model, there's no point in loading in model parameters like
+        # rope scaling, neftune noise, etc.
+        draft_model_load_kwargs = {
+            k: v for k, v in load_kwargs.items() if k in {"torch_dtype", "quantization_config", "device_map"}
+        }
+        draft_model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(
+            config_obj.draft_model, **draft_model_load_kwargs
+        )
+        logger.info("Done.")
+
+    return model, draft_model
 
 
 class LLM(BaseModel):
@@ -126,9 +142,18 @@ class LLM(BaseModel):
         self.model_name = self.config_obj.base_model
         self.model_config = AutoConfig.from_pretrained(self.config_obj.base_model)
 
-        self.model = load_pretrained_from_config(self.config_obj, model_config=self.model_config)
-        self.curr_device = next(self.model.parameters()).device
-        logger.info("Done.")
+        self.model, self.draft_model = load_pretrained_from_config(self.config_obj, model_config=self.model_config)
+        self.base_model_device = next(self.model.parameters()).device
+        self.draft_model_device = next(self.draft_model.parameters()).device if self.draft_model else None
+
+        # Flag to determine whether to use speculative decoding with a draft model or regular decoding.
+        self.use_speculative_decoding = bool(self.draft_model)
+        # TODO: Make this configurable
+        self.speculate_k = 8
+        self.sampling_kwargs = {
+            "temperature": self.config_obj.generation.temperature,
+            "top_k": self.config_obj.generation.top_k,
+        }
 
         self.context_len = get_context_len(self.model_config)
 
@@ -268,11 +293,13 @@ class LLM(BaseModel):
     def to_device(self, device):
         device = torch.device(device)
 
-        if device.type == self.curr_device.type:
+        if device.type == self.base_model_device.type:
             log_once(f"Model already on device'{device}'.")
+            if self.draft_model and device.type != self.draft_model_device.type:
+                self.draft_model = self.draft_model.to(device)
             return self
         else:
-            log_once(f"Moving LLM from '{self.curr_device}' to '{device}'.")
+            log_once(f"Moving LLM from '{self.base_model_device}' to '{device}'.")
 
         model_kwargs = {}
         num_gpus = torch.cuda.device_count()
@@ -296,6 +323,12 @@ class LLM(BaseModel):
             # we save and reload the weights to ensure that they can be sharded across the GPUs using `from_pretrained`
             with tempfile.TemporaryDirectory() as tmpdir:
                 self.model.save_pretrained(tmpdir)
+                if self.draft_model:
+                    self.draft_model.save_pretrained(os.path.join(tmpdir, "draft_model"))
+                    self.draft_model = AutoModelForCausalLM.from_pretrained(
+                        os.path.join(tmpdir, "draft_model"),
+                        **model_kwargs,
+                    )
 
                 if self.config_obj.adapter:
                     from peft import PeftModel
@@ -317,8 +350,12 @@ class LLM(BaseModel):
 
         else:
             self.model = self.model.to(device)
+            if self.draft_model:
+                self.draft_model = self.draft_model.to(device)
 
-        self.curr_device = device
+        self.base_model_device = device
+        if self.draft_model:
+            self.draft_model_device = device
         return self
 
     @classmethod
@@ -368,7 +405,7 @@ class LLM(BaseModel):
 
         # Wrap with flash attention backend for faster generation
         with torch.backends.cuda.sdp_kernel(enable_flash=True, enable_math=False, enable_mem_efficient=False) if (
-            torch.cuda.is_available() and self.curr_device.type == "cuda"
+            torch.cuda.is_available() and self.base_model_device.type == "cuda"
         ) else contextlib.nullcontext():
             # TODO (jeffkinnison): Determine why the 8-bit `SCB` and `CB` matrices are deleted in the forward pass
             model_outputs = self.model(input_ids=self.model_inputs, attention_mask=self.attention_masks).get(LOGITS)
@@ -401,6 +438,7 @@ class LLM(BaseModel):
 
         return outputs
 
+    @torch.no_grad()
     def generate(
         self,
         inputs: Union[
@@ -412,25 +450,69 @@ class LLM(BaseModel):
         log_once(f"For generating text, using: {self.generation}")
         input_ids, _ = self._unpack_inputs(inputs)
 
-        with torch.no_grad():
-            input_lengths = []
-            sequences_list = []
-            for input_ids_sample in input_ids:
-                input_ids_sample_no_padding = remove_left_padding(input_ids_sample, self.tokenizer)
+        input_lengths = []
+        sequences_list = []
+        for input_ids_sample in input_ids:
+            input_ids_sample_no_padding = remove_left_padding(input_ids_sample, self.tokenizer)
 
-                if input_ids_sample_no_padding.shape[1] > self.max_input_length:
-                    logger.warning(
-                        f"Input length {input_ids_sample_no_padding.shape[1]} is "
-                        f"greater than max input length {self.max_input_length}. Truncating."
+            if input_ids_sample_no_padding.shape[1] > self.max_input_length:
+                logger.warning(
+                    f"Input length {input_ids_sample_no_padding.shape[1]} is "
+                    f"greater than max input length {self.max_input_length}. Truncating."
+                )
+                input_ids_sample_no_padding = input_ids_sample_no_padding[:, -self.max_input_length :]  # noqa E203
+
+            input_lengths.append(input_ids_sample_no_padding.shape[1])
+
+            # Wrap with flash attention backend for faster generation
+            with torch.backends.cuda.sdp_kernel(enable_flash=True, enable_math=False, enable_mem_efficient=False) if (
+                torch.cuda.is_available() and self.base_model_device.type == "cuda"
+            ) else contextlib.nullcontext():
+                if self.use_speculative_decoding:
+                    # Create an empty tensor of the expected final shape and fill in the current tokens
+                    prompt_tokens = input_ids_sample_no_padding.size(1)  # num tokens in prompt
+                    maximum_total_tokens = prompt_tokens + self.max_new_tokens
+                    max_seq_length = min(maximum_total_tokens, self.context_len)
+                    max_seq_length = max_seq_length + self.speculate_k + 1
+                    device, dtype = input_ids_sample_no_padding.device, input_ids_sample_no_padding.dtype
+                    # We always generate one sample at a time, so batch size is 1
+                    empty = torch.empty((1, max_seq_length), dtype=dtype, device=device)
+                    empty[0][:prompt_tokens] = input_ids_sample_no_padding
+
+                    seq = empty
+                    input_pos = torch.arange(0, prompt_tokens, device=device).unsqueeze(0)
+
+                    next_token = prefill(
+                        self.model, input_ids_sample_no_padding.view(1, -1), input_pos, **self.sampling_kwargs
                     )
-                    input_ids_sample_no_padding = input_ids_sample_no_padding[:, -self.max_input_length :]  # noqa E203
+                    prefill(
+                        self.draft_model, input_ids_sample_no_padding.view(1, -1), input_pos, **self.sampling_kwargs
+                    )
+                    seq[prompt_tokens] = next_token
 
-                input_lengths.append(input_ids_sample_no_padding.shape[1])
+                    # generate the rest of the tokens
+                    input_pos = torch.tensor([prompt_tokens], device=device, dtype=torch.int)
+                    accept_counts = [0] * (self.speculate_k + 1)
 
-                # Wrap with flash attention backend for faster generation
-                with torch.backends.cuda.sdp_kernel(
-                    enable_flash=True, enable_math=False, enable_mem_efficient=False
-                ) if (torch.cuda.is_available() and self.curr_device.type == "cuda") else contextlib.nullcontext():
+                    input_pos = input_pos.item()
+                    callback = lambda x: x
+                    while input_pos < maximum_total_tokens - 1:
+                        cur_token = next_token.view(())
+
+                        next_tokens = speculative_decode(
+                            self.model, self.draft_model, cur_token, input_pos, self.speculate_k, **self.sampling_kwargs
+                        )
+
+                        accept_counts[len(next_tokens) - 1] += 1
+                        num_added = min(maximum_total_tokens - input_pos - 1, len(next_tokens))
+                        seq[input_pos + 1 : input_pos + num_added + 1] = next_tokens[:num_added]
+                        for i in next_tokens[:num_added,]:
+                            callback(i)
+                        input_pos = input_pos + num_added
+                        next_token = next_tokens[-1]
+
+                    sequences_list.append(seq)
+                else:
                     # Generate text using the model
                     model_outputs = self.model.generate(
                         input_ids=input_ids_sample_no_padding,
@@ -440,15 +522,15 @@ class LLM(BaseModel):
                         output_scores=True,
                     )
 
-                sequences_list.append(model_outputs.sequences[0])
+                    sequences_list.append(model_outputs.sequences[0])
 
-            # Extract the predictions, probabilities and logits from the model outputs
-            # through the forward pass of the output feature
-            outputs = self.output_feature_decoder.decoder_obj.forward(
-                sequences_list,
-                input_lengths,
-                self.max_new_tokens,
-            )
+        # Extract the predictions, probabilities and logits from the model outputs
+        # through the forward pass of the output feature
+        outputs = self.output_feature_decoder.decoder_obj.forward(
+            sequences_list,
+            input_lengths,
+            self.max_new_tokens,
+        )
 
         return outputs
 

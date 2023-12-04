@@ -270,6 +270,7 @@ AUDIO_FEATURE_KEYS = [
 ]
 
 BASE_MODEL = "base_model"
+DRAFT_MODEL = "draft_model"
 MODEL_TYPE = "model_type"
 MODEL_ECD = "ecd"
 MODEL_GBM = "gbm"

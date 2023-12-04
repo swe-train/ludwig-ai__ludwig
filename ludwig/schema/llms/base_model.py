@@ -35,6 +35,34 @@ MODEL_PRESETS = {
 }
 
 
+def validate(model_name: str):
+    """Validates and upgrades the given model name to its full path, if applicable.
+
+    If the name exists in `MODEL_PRESETS`, returns the corresponding value from the dict; otherwise checks if the given
+    name (which should be a full path) exists locally or in the transformers library.
+    """
+    if isinstance(model_name, str):
+        if model_name in MODEL_PRESETS:
+            return MODEL_PRESETS[model_name]
+        if os.path.isdir(model_name):
+            return model_name
+        try:
+            AutoConfig.from_pretrained(model_name)
+            return model_name
+        except OSError:
+            raise ConfigValidationError(
+                f"Specified base model `{model_name}` could not be loaded. If this is a private repository, make "
+                f"sure to set HUGGING_FACE_HUB_TOKEN in your environment. Check that {model_name} is a valid "
+                "pretrained CausalLM listed on huggingface or a valid local directory containing the weights for a "
+                "pretrained CausalLM from huggingface. See: "
+                "https://huggingface.co/models?pipeline_tag=text-generation&sort=downloads for a full list."
+            )
+    raise ValidationError(
+        f"`base_model` should be a string, instead given: {model_name}. This can be a preset or any pretrained "
+        "CausalLM on huggingface. See: https://huggingface.co/models?pipeline_tag=text-generation&sort=downloads"
+    )
+
+
 @DeveloperAPI
 def BaseModelDataclassField():
     description = (
@@ -42,33 +70,6 @@ def BaseModelDataclassField():
         "name of a pretrained model from the HuggingFace Hub, or a path to a directory containing a "
         "pretrained model."
     )
-
-    def validate(model_name: str):
-        """Validates and upgrades the given model name to its full path, if applicable.
-
-        If the name exists in `MODEL_PRESETS`, returns the corresponding value from the dict; otherwise checks if the
-        given name (which should be a full path) exists locally or in the transformers library.
-        """
-        if isinstance(model_name, str):
-            if model_name in MODEL_PRESETS:
-                return MODEL_PRESETS[model_name]
-            if os.path.isdir(model_name):
-                return model_name
-            try:
-                AutoConfig.from_pretrained(model_name)
-                return model_name
-            except OSError:
-                raise ConfigValidationError(
-                    f"Specified base model `{model_name}` could not be loaded. If this is a private repository, make "
-                    f"sure to set HUGGING_FACE_HUB_TOKEN in your environment. Check that {model_name} is a valid "
-                    "pretrained CausalLM listed on huggingface or a valid local directory containing the weights for a "
-                    "pretrained CausalLM from huggingface. See: "
-                    "https://huggingface.co/models?pipeline_tag=text-generation&sort=downloads for a full list."
-                )
-        raise ValidationError(
-            f"`base_model` should be a string, instead given: {model_name}. This can be a preset or any pretrained "
-            "CausalLM on huggingface. See: https://huggingface.co/models?pipeline_tag=text-generation&sort=downloads"
-        )
 
     class BaseModelField(fields.Field):
         def _serialize(self, value, attr, obj, **kwargs):
@@ -117,5 +118,45 @@ def BaseModelDataclassField():
         },
         # TODO: This is an unfortunate side-effect of dataclass init order - you cannot have non-default fields follow
         # default fields, so we have to give `base_model` a fake default of `None`.
+        default=None,
+    )
+
+
+@DeveloperAPI
+def DraftModelDataclassField():
+    description = (
+        "Smaller draft model to be used for speculative decoding. If not specified, the base model will be used for "
+        "both training and decoding."
+    )
+
+    class DraftModelField(fields.Field):
+        def _serialize(self, value, attr, obj, **kwargs):
+            if isinstance(value, str):
+                return value
+            raise ValidationError(f"Value to serialize is not a string: {value}")
+
+        def _deserialize(self, value, attr, obj, **kwargs):
+            return validate(value)
+
+        def _jsonschema_type_mapping(self):
+            return {
+                "type": "string",
+                "description": description,
+                "title": "draft_model",
+                "parameter_metadata": convert_metadata_to_json(LLM_METADATA["draft_model"]),
+            }
+
+    return field(
+        metadata={
+            "marshmallow_field": DraftModelField(
+                required=False,
+                allow_none=True,
+                validate=validate,
+                metadata={
+                    "description": description,
+                    "parameter_metadata": convert_metadata_to_json(LLM_METADATA["draft_model"]),
+                },
+            ),
+        },
         default=None,
     )

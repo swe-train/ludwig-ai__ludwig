@@ -11,6 +11,9 @@ base_model:
     expected_impact: 3
     ui_component_type: radio_string_combined
     short_description: This can be one of the presets or a fully qualified name of a pretrained model from the HuggingFace Hub
+draft_model:
+  ui_display_name: Draft Model
+  expected_impact: 2
 generation:
   temperature:
     ui_display_name: Temperature

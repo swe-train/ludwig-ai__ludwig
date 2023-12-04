@@ -11,7 +11,7 @@ from ludwig.schema.features.base import (
     LLMOutputFeatureSelection,
 )
 from ludwig.schema.hyperopt import HyperoptConfig, HyperoptField
-from ludwig.schema.llms.base_model import BaseModelDataclassField
+from ludwig.schema.llms.base_model import BaseModelDataclassField, DraftModelDataclassField
 from ludwig.schema.llms.generation import LLMGenerationConfig, LLMGenerationConfigField
 from ludwig.schema.llms.model_parameters import ModelParametersConfig, ModelParametersConfigField
 from ludwig.schema.llms.peft import AdapterDataclassField, BaseAdapterConfig
@@ -32,6 +32,7 @@ class LLMModelConfig(ModelConfig):
     model_type: str = schema_utils.ProtectedString("llm")
 
     base_model: str = BaseModelDataclassField()
+    draft_model: Optional[str] = DraftModelDataclassField()
 
     input_features: FeatureCollection[BaseInputFeatureConfig] = LLMInputFeatureSelection().get_list_field()
     output_features: FeatureCollection[BaseOutputFeatureConfig] = LLMOutputFeatureSelection().get_list_field()

@@ -14,6 +14,7 @@ from ludwig.constants import (
     BACKEND,
     BASE_MODEL,
     BATCH_SIZE,
+    DRAFT_MODEL,
     EPOCHS,
     GENERATION,
     INPUT_FEATURES,
@@ -91,13 +92,13 @@ def get_dataset():
     return df
 
 
-def get_generation_config():
+def get_generation_config(max_new_tokens: int = None):
     return {
         "temperature": 0.1,
         "top_p": 0.75,
         "top_k": 40,
         "num_beams": 4,
-        "max_new_tokens": MAX_NEW_TOKENS_TEST_DEFAULT,
+        "max_new_tokens": max_new_tokens or MAX_NEW_TOKENS_TEST_DEFAULT,
     }
 
 
@@ -1107,3 +1108,30 @@ def test_llm_finetuning_with_embedding_noise(
     preds = convert_preds(preds)
 
     assert preds
+
+
+def test_llm_speculative_decoding(tmpdir):
+    input_features = [
+        {
+            "name": "Question",
+            "type": "text",
+            "encoder": {"type": "passthrough"},
+        }
+    ]
+    output_features = [text_feature(output_feature=True, name="Answer", decoder={"type": "text_extractor"})]
+
+    csv_filename = os.path.join(tmpdir, "training.csv")
+    dataset_filename = generate_data(input_features, output_features, csv_filename, num_examples=100)
+
+    config = {
+        MODEL_TYPE: MODEL_LLM,
+        BASE_MODEL: "facebook/opt-350m",
+        DRAFT_MODEL: "facebook/opt-125m",
+        GENERATION: get_generation_config(max_new_tokens=20),
+        INPUT_FEATURES: input_features,
+        OUTPUT_FEATURES: output_features,
+        BACKEND: LOCAL_BACKEND,
+    }
+
+    model = LudwigModel(config)
+    model.train(dataset=dataset_filename, output_directory=str(tmpdir), skip_save_processed_input=True)
